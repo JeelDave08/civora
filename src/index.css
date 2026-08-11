@@ -1,0 +1,58 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+@layer base {
+  :root {
+    --background: 216 33% 97%; /* #F4F7FB */
+    --foreground: 215 28% 17%; /* #2C3E50 */
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 17%;
+
+    --primary: 168 56% 54%; /* #4CC9B0 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 200 48% 66%; /* #7DB9D7 */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%; /* #6B7280 */
+
+    --accent: 271 91% 65%; /* #A855F7 */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%; /* #EF4444 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 32% 93%; /* #E6ECF1 */
+    --input: 210 32% 93%;
+    --ring: 168 56% 54%;
+
+    --radius: 20px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-heading font-semibold tracking-tight;
+  }
+}
+
+/* Glassmorphism & custom utility classes */
+@layer utilities {
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20;
+  }
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-md border border-white/20 rounded-[20px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300;
+  }
+}
