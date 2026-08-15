@@ -1,6 +1,8 @@
-import { useState } from "react"
+import { useState, useRef } from "react"
+import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { MapPin, Camera, Video, Upload, CheckCircle, ArrowRight, ArrowLeft } from "lucide-react"
+import { useAuth } from "../context/AuthContext"
+import { MapPin, Camera, Video, Upload, CheckCircle, ArrowRight, ArrowLeft, Navigation } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Card, CardContent } from "@/components/ui/Card"
@@ -10,13 +12,118 @@ const categories = [
 ]
 
 export function RaiseComplaint() {
+  const navigate = useNavigate()
+  const { token } = useAuth()
   const [step, setStep] = useState(1)
+  const [isUploading, setIsUploading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false)
+  const [complaintId, setComplaintId] = useState("CIV-8492")
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  
   const [formData, setFormData] = useState({
     category: "",
     description: "",
     priority: "Medium",
     location: "",
+    imageUrl: ""
   })
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsUploading(true)
+    const data = new FormData()
+    data.append("file", file)
+    data.append("upload_preset", "civora")
+    data.append("cloud_name", "racerjru")
+
+    try {
+      const res = await fetch("https://api.cloudinary.com/v1_1/racerjru/image/upload", {
+        method: "POST",
+        body: data
+      })
+      const uploadedImage = await res.json()
+      setFormData(prev => ({ ...prev, imageUrl: uploadedImage.secure_url }))
+    } catch (err) {
+      console.error("Error uploading to Cloudinary:", err)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const handleDetectLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser")
+      return
+    }
+
+    setIsDetectingLocation(true)
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const lat = position.coords.latitude
+          const lon = position.coords.longitude
+          
+          const apiUrl = import.meta.env.VITE_GEOCODE_API_URL || "https://us1.locationiq.com/v1/reverse"
+          const apiKey = import.meta.env.VITE_GEOCODE_API_KEY || "pk.dummy_key"
+          
+          const response = await fetch(`${apiUrl}?key=${apiKey}&lat=${lat}&lon=${lon}&format=json`)
+          if (response.ok) {
+            const data = await response.json()
+            setFormData(prev => ({ ...prev, location: data.display_name }))
+          } else {
+            setFormData(prev => ({ ...prev, location: `${lat.toFixed(6)}, ${lon.toFixed(6)}` }))
+          }
+        } catch (error) {
+          console.error("Error fetching location details:", error)
+          setFormData(prev => ({ ...prev, location: `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}` }))
+        } finally {
+          setIsDetectingLocation(false)
+        }
+      },
+      (error) => {
+        console.error("Error detecting location:", error)
+        alert("Could not detect your location. Please check permissions.")
+        setIsDetectingLocation(false)
+      }
+    )
+  }
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true)
+    try {
+      const res = await fetch("http://localhost:5000/api/citizen/complaints", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: `${formData.category} Issue at ${formData.location || 'Unknown Location'}`,
+          description: formData.description,
+          category: formData.category,
+          priority: formData.priority,
+          location: formData.location,
+          imageUrl: formData.imageUrl
+        })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setComplaintId(data._id.substring(data._id.length - 6).toUpperCase())
+        handleNext()
+      } else {
+        alert("Submission failed: " + (data.message || "Unknown error"))
+        console.error("Submission failed:", data)
+      }
+    } catch (err: any) {
+      alert("Error submitting complaint: " + err.message)
+      console.error("Error submitting complaint:", err)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const handleNext = () => setStep(s => Math.min(s + 1, 4))
   const handlePrev = () => setStep(s => Math.max(s - 1, 1))
@@ -95,7 +202,7 @@ export function RaiseComplaint() {
                       <option value="Low">Low</option>
                       <option value="Medium">Medium</option>
                       <option value="High">High</option>
-                      <option value="Emergency">Emergency</option>
+                      <option value="Critical">Critical</option>
                     </select>
                   </div>
                 </div>
@@ -114,34 +221,65 @@ export function RaiseComplaint() {
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-heading">Exact Location</label>
-                    <div className="relative">
+                    <div className="relative flex items-center">
                       <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                       <Input 
                         value={formData.location}
                         onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                        className="pl-10" 
-                        placeholder="Search location or drop a pin..." 
+                        className="pl-10 pr-32" 
+                        placeholder="Search location or detect automatically..." 
                       />
-                    </div>
-                    {/* Placeholder for Map */}
-                    <div className="h-[200px] w-full rounded-xl bg-muted border border-border flex items-center justify-center overflow-hidden relative">
-                      <div className="absolute inset-0 bg-[url('https://maps.googleapis.com/maps/api/staticmap?center=New+York,NY&zoom=13&size=600x300&maptype=roadmap')] bg-cover bg-center opacity-50"></div>
-                      <div className="relative z-10 flex flex-col items-center p-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-sm border border-border">
-                        <MapPin size={24} className="text-primary mb-2" />
-                        <span className="text-sm font-medium text-heading">Google Maps Interactive Placeholder</span>
-                      </div>
+                      <Button 
+                        type="button"
+                        onClick={handleDetectLocation} 
+                        disabled={isDetectingLocation}
+                        size="sm" 
+                        variant="secondary" 
+                        className="absolute right-1 top-1 h-8 text-xs px-3 gap-1"
+                      >
+                        {isDetectingLocation ? (
+                          <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                          <Navigation size={12} />
+                        )}
+                        Detect
+                      </Button>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-heading">Upload Photos/Videos</label>
-                    <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer">
-                      <div className="flex justify-center gap-4 mb-4">
-                        <div className="h-12 w-12 rounded-full bg-primary/10 text-primary flex items-center justify-center"><Camera size={20} /></div>
-                        <div className="h-12 w-12 rounded-full bg-secondary/10 text-secondary flex items-center justify-center"><Video size={20} /></div>
-                      </div>
-                      <p className="text-sm font-medium text-heading">Click to upload or drag and drop</p>
-                      <p className="text-xs text-muted-foreground mt-1">SVG, PNG, JPG or MP4 (max. 10MB)</p>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      onChange={handleFileUpload} 
+                      className="hidden" 
+                      accept="image/*,video/mp4"
+                    />
+                    <div 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer relative"
+                    >
+                      {isUploading ? (
+                        <div className="flex flex-col items-center justify-center">
+                          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+                          <p className="text-sm font-medium">Uploading to Cloudinary...</p>
+                        </div>
+                      ) : formData.imageUrl ? (
+                        <div className="flex flex-col items-center justify-center">
+                          <img src={formData.imageUrl} alt="Uploaded preview" className="h-32 object-contain rounded-lg mb-4" />
+                          <p className="text-sm font-medium text-success">Upload successful! Click to change.</p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex justify-center gap-4 mb-4">
+                            <div className="h-12 w-12 rounded-full bg-primary/10 text-primary flex items-center justify-center"><Camera size={20} /></div>
+                            <div className="h-12 w-12 rounded-full bg-secondary/10 text-secondary flex items-center justify-center"><Video size={20} /></div>
+                          </div>
+                          <p className="text-sm font-medium text-heading">Click to upload or drag and drop</p>
+                          <p className="text-xs text-muted-foreground mt-1">SVG, PNG, JPG or MP4 (max. 10MB)</p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -165,7 +303,7 @@ export function RaiseComplaint() {
                 </p>
                 <div className="bg-muted p-4 rounded-xl max-w-xs mx-auto mt-6">
                   <p className="text-sm text-muted-foreground">Complaint ID</p>
-                  <p className="text-xl font-bold tracking-widest text-heading">CIV-8492</p>
+                  <p className="text-xl font-bold tracking-widest text-heading">CIV-{complaintId}</p>
                 </div>
               </motion.div>
             )}
@@ -184,11 +322,11 @@ export function RaiseComplaint() {
                 Next <ArrowRight size={16} />
               </Button>
             ) : step === 3 ? (
-              <Button onClick={handleNext} className="gap-2 bg-primary text-white hover:bg-primary/90">
-                Submit Complaint <Upload size={16} />
+              <Button onClick={handleSubmit} disabled={isSubmitting} className="gap-2 bg-primary text-white hover:bg-primary/90">
+                {isSubmitting ? 'Submitting...' : 'Submit Complaint'} <Upload size={16} />
               </Button>
             ) : (
-              <Button onClick={() => window.location.href = '/citizen/my-complaints'} className="w-full sm:w-auto">
+              <Button onClick={() => navigate('/citizen/my-complaints')} className="w-full sm:w-auto">
                 View My Complaints
               </Button>
             )}

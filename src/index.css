@@ -56,3 +56,5 @@
     @apply bg-white/70 backdrop-blur-md border border-white/20 rounded-[20px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300;
   }
 }
+
+.goog-te-banner-frame { display: none !important; } body { top: 0px !important; } .skiptranslate { display: none !important; }

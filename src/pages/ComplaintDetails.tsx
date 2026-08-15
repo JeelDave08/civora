@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react"
 import { useParams, Link } from "react-router-dom"
 import { motion } from "framer-motion"
 import { MapPin, Clock, CheckCircle, AlertTriangle, ArrowLeft, Building2, User, Calendar, MessageSquare, Send } from "lucide-react"
@@ -5,29 +6,90 @@ import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
+import { useAuth } from "../context/AuthContext"
 
 export function ComplaintDetails() {
   const { id } = useParams()
+  const { token } = useAuth()
+  const [complaint, setComplaint] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
-  const complaint = {
-    id: id || "CIV-8492",
-    title: "Large pothole on main street",
-    category: "Road",
-    status: "In Progress",
-    priority: "High",
-    date: "Oct 25, 2023",
-    description: "There is a massive pothole that has been causing traffic slowdowns and potential vehicle damage near the intersection of Main St and 4th Ave. It needs immediate attention before the rainy season starts.",
-    location: "Intersection of Main St & 4th Ave",
-    department: "Public Works",
-    assignedTo: "Rajesh Kumar (Field Agent)",
-    images: ["https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&q=80&w=400"],
-    timeline: [
-      { status: "Complaint Registered", date: "Oct 25, 10:30 AM", active: true },
-      { status: "Assigned to Department", date: "Oct 25, 02:15 PM", active: true },
-      { status: "Inspection Completed", date: "Oct 26, 11:00 AM", active: true },
-      { status: "Work in Progress", date: "Pending", active: false },
-      { status: "Resolved", date: "Pending", active: false },
-    ]
+  useEffect(() => {
+    const fetchComplaintDetails = async () => {
+      try {
+        setIsLoading(true)
+        const response = await fetch(`http://localhost:5000/api/citizen/complaints/${id}`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          
+          const formattedComplaint = {
+            id: data._id.substring(data._id.length - 6).toUpperCase(),
+            rawId: data._id,
+            title: data.title,
+            category: data.category,
+            status: data.status,
+            priority: data.priority,
+            date: new Date(data.createdAt).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }),
+            description: data.description || data.title,
+            location: typeof data.location === "object" ? (data.location?.address || "Unknown Location") : (data.location || "Unknown Location"),
+            department: data.department || "Under Review",
+            assignedTo: data.assignedTo || "Not Assigned Yet",
+            images: data.imageUrl ? [data.imageUrl] : [],
+            timeline: [
+              { status: "Complaint Registered", date: new Date(data.createdAt).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }), active: true },
+              { status: "Assigned to Department", date: ["Assigned", "Working", "Resolved", "Closed"].includes(data.status) ? "Completed" : "Pending", active: ["Assigned", "Working", "Resolved", "Closed"].includes(data.status) },
+              { status: "Inspection Completed", date: ["Working", "Resolved", "Closed"].includes(data.status) ? "Completed" : "Pending", active: ["Working", "Resolved", "Closed"].includes(data.status) },
+              { status: "Work in Progress", date: ["Working", "Resolved", "Closed"].includes(data.status) ? "In Progress" : "Pending", active: ["Working", "Resolved", "Closed"].includes(data.status) },
+              { status: "Resolved", date: ["Resolved", "Closed"].includes(data.status) ? "Resolved" : "Pending", active: ["Resolved", "Closed"].includes(data.status) },
+            ]
+          }
+          setComplaint(formattedComplaint)
+        } else {
+          setError("Failed to fetch complaint details.")
+        }
+      } catch (err) {
+        console.error("Error fetching complaint details:", err)
+        setError("Error loading complaint data.")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    if (id && token) {
+      fetchComplaintDetails()
+    }
+  }, [id, token])
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-muted-foreground animate-pulse">Loading complaint details...</p>
+      </div>
+    )
+  }
+
+  if (error || !complaint) {
+    return (
+      <div className="max-w-md mx-auto text-center space-y-6 py-16">
+        <div className="h-16 w-16 rounded-full bg-destructive/10 text-destructive flex items-center justify-center mx-auto">
+          <AlertTriangle size={32} />
+        </div>
+        <h3 className="text-xl font-bold text-heading">Failed to Load Complaint</h3>
+        <p className="text-muted-foreground">
+          {error || "The complaint you are trying to view could not be found or you do not have permission to view it."}
+        </p>
+        <Button asChild>
+          <Link to="/citizen/my-complaints">Back to My Complaints</Link>
+        </Button>
+      </div>
+    )
   }
 
   return (
@@ -101,13 +163,24 @@ export function ComplaintDetails() {
 
               <div className="pt-4 border-t border-border">
                 <h4 className="text-sm font-medium text-heading mb-3">Attached Media</h4>
-                <div className="flex gap-4">
-                  {complaint.images.map((img, i) => (
-                    <div key={i} className="h-24 w-32 rounded-lg overflow-hidden border border-border">
-                      <img src={img} alt="Complaint" className="w-full h-full object-cover" />
-                    </div>
-                  ))}
-                </div>
+                {complaint.images && complaint.images.length > 0 ? (
+                  <div className="flex gap-4 flex-wrap">
+                    {complaint.images.map((img, i) => (
+                      <div 
+                        key={i} 
+                        onClick={() => setSelectedImage(img)}
+                        className="h-24 w-32 rounded-lg overflow-hidden border border-border cursor-pointer hover:opacity-90 transition-opacity relative group"
+                      >
+                        <img src={img} alt="Complaint" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-medium transition-opacity">
+                          View
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No media attached to this complaint.</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -172,6 +245,24 @@ export function ComplaintDetails() {
           </Card>
         </div>
       </div>
+
+      {/* Image Preview Modal */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div className="max-w-3xl max-h-[80vh] p-2 bg-card rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <img src={selectedImage} alt="Full screen preview" className="max-w-full max-h-[75vh] object-contain rounded-xl" />
+            <button 
+              onClick={() => setSelectedImage(null)}
+              className="absolute top-4 right-4 bg-black/60 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black/80 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

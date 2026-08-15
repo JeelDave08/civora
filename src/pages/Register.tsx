@@ -7,8 +7,19 @@ import {
   Eye, EyeOff, CheckCircle2, ArrowRight, Check
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
+import { signInWithPopup } from "firebase/auth"
+import { auth, googleProvider } from "../lib/firebase"
 import smartCityRightImg from "../assets/smart_city_register_right.png"
 import smartCitySuccessImg from "../assets/smart_city_success.png"
+
+const GoogleIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24">
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+  </svg>
+)
 
 const Logo = () => (
   <div className="flex items-center gap-3">
@@ -22,30 +33,31 @@ const Logo = () => (
   </div>
 )
 
-const InputField = ({ label, name, type = "text", isDone, registerProps, icon: Icon, placeholder, showEye, onEyeClick, isEyeOpen }: any) => {
+const InputField = ({ label, name, type = "text", isDone, registerProps, icon: Icon, placeholder, showEye, onEyeClick, isEyeOpen, onPaste }: any) => {
   return (
-    <div className={`relative w-full rounded-[12px] border-[1.5px] transition-all duration-300 ${isDone ? 'border-[#2D8C74] bg-[#2D8C74]/[0.02]' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-      <div className="flex items-center min-h-[54px] px-4 py-1.5">
-        <Icon className={`w-5 h-5 mr-3.5 shrink-0 ${isDone ? 'text-[#2D8C74]' : 'text-slate-400'}`} strokeWidth={2.5} />
+    <div className={`relative w-full rounded-[10px] border-[1.5px] transition-all duration-300 ${isDone ? 'border-[#2D8C74] bg-[#2D8C74]/[0.02]' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+      <div className="flex items-center min-h-[46px] px-3 py-1">
+        <Icon className={`w-4 h-4 mr-3 shrink-0 ${isDone ? 'text-[#2D8C74]' : 'text-slate-400'}`} strokeWidth={2.5} />
         
         <div className="flex-1 flex flex-col justify-center overflow-hidden pt-0.5">
-          <span className={`text-[10px] font-bold leading-tight mb-0.5 ${isDone ? 'text-[#2D8C74]' : 'text-slate-500'}`}>{label}</span>
+          <span className={`text-[9px] font-bold leading-tight mb-0.5 ${isDone ? 'text-[#2D8C74]' : 'text-slate-500'}`}>{label}</span>
           <input
             type={type}
             placeholder={placeholder}
+            onPaste={onPaste}
             {...registerProps}
-            className="w-full bg-transparent text-[14px] leading-tight text-slate-800 font-medium placeholder-slate-300 focus:outline-none pb-0.5"
+            className="w-full bg-transparent text-[13px] leading-tight text-slate-800 font-medium placeholder-slate-300 focus:outline-none pb-0.5"
           />
         </div>
 
         {showEye && (
           <button type="button" onClick={onEyeClick} className="ml-2 shrink-0 text-slate-400 hover:text-slate-600 transition-colors">
-            {isEyeOpen ? <EyeOff size={18} /> : <Eye size={18} />}
+            {isEyeOpen ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         )}
         {isDone && !showEye && (
-          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="ml-2 shrink-0 w-[18px] h-[18px] bg-[#2D8C74] rounded-full flex items-center justify-center">
-            <Check size={12} strokeWidth={3} className="text-white" />
+          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="ml-2 shrink-0 w-[16px] h-[16px] bg-[#2D8C74] rounded-full flex items-center justify-center">
+            <Check size={10} strokeWidth={3} className="text-white" />
           </motion.div>
         )}
       </div>
@@ -59,6 +71,8 @@ export function Register() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [errorMsg, setErrorMsg] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const { login } = useAuth()
   
   const fullNameValue = watch("fullName")
@@ -75,14 +89,68 @@ export function Register() {
 
   const completedStepsCount = [isNameDone, isEmailDone, isCityDone, isPasswordDone, isConfirmDone].filter(Boolean).length
 
-  const onSubmit = (data: any) => {
-    setIsSuccess(true)
+  const onSubmit = async (data: any) => {
+    setErrorMsg("");
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: data.fullName,
+          email: data.email,
+          city: data.city,
+          password: data.password
+        })
+      });
+      const result = await response.json();
+      if (response.ok) {
+        login(result.token, result.user);
+        setIsSuccess(true);
+      } else {
+        setErrorMsg(result.message || "Registration failed");
+        console.error("Registration failed:", result.message);
+      }
+    } catch (error) {
+      setErrorMsg("Network error. Is the backend running?");
+      console.error("Registration error:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
   
   const onContinueToDashboard = () => {
-    const token = `jwt_token_${Math.random().toString(36).substring(7)}`;
-    login(token, { name: fullNameValue.split(' ')[0], role: 'citizen' });
     navigate("/citizen/dashboard")
+  }
+
+  const handleGoogleLogin = async () => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+      
+      const response = await fetch('http://localhost:5000/api/auth/google', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: user.email,
+          displayName: user.displayName,
+          uid: user.uid
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        login(data.token, data.user);
+        navigate("/citizen/dashboard");
+      } else {
+        console.error("Google login failed via backend:", data.message);
+      }
+    } catch (error) {
+      console.error("Error signing in with Google:", error);
+    }
   }
 
   const steps = [
@@ -175,52 +243,34 @@ export function Register() {
   }
 
   return (
-    <div className="h-screen w-full flex font-sans bg-[#F8FAFC] overflow-hidden">
+    <div className="min-h-screen lg:h-screen w-full flex flex-col lg:flex-row font-sans bg-[#F8FAFC]">
       
-      {/* Left Side - Form & Vertical Timeline */}
-      <div className="w-full lg:w-[45%] h-full flex flex-col p-8 relative z-20">
-        <Logo />
+      {/* Left Side - Form */}
+      <div className="w-full lg:w-[45%] flex flex-col p-5 sm:p-8 relative z-20 overflow-y-auto min-h-screen lg:min-h-0">
+        <div className="shrink-0">
+          <Logo />
+        </div>
         
-        <div className="flex-1 flex items-center justify-center w-full mt-4">
-          <div className="w-full max-w-[500px] flex gap-8">
+        <div className="flex-1 flex items-center justify-center w-full mt-6 lg:mt-0 py-6 lg:py-0">
+          <div className="w-full max-w-[420px] mx-auto">
             
-            {/* Vertical Timeline */}
-            <div className="hidden sm:flex flex-col pt-[80px] w-32 relative">
-              <div className="absolute left-[15px] top-[95px] bottom-[40px] w-[2px] bg-slate-200 z-0"></div>
-              {steps.map((step, idx) => (
-                <div key={step.id} className="relative z-10 flex gap-4 items-start mb-12">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center bg-white border-[2px] transition-all duration-300 ${
-                    step.isDone ? 'border-[#2D8C74] shadow-[0_0_10px_rgba(45,140,116,0.2)]' : 'border-slate-200'
-                  }`}>
-                    <span className={`text-[12px] font-bold ${step.isDone ? 'text-[#2D8C74]' : 'text-slate-400'}`}>{step.id}</span>
-                  </div>
-                  <div className="pt-1">
-                    <p className={`text-[11px] font-extrabold whitespace-nowrap ${step.isDone ? 'text-slate-800' : 'text-slate-500'}`}>{step.label}</p>
-                    <p className={`text-[10px] font-bold mt-0.5 ${step.isDone ? 'text-[#2D8C74]' : 'text-slate-400'}`}>
-                      {step.isDone ? 'Completed' : 'Pending'}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
             {/* Form Card */}
-            <div className="flex-1 bg-white rounded-[24px] p-8 shadow-[0_20px_40px_rgba(0,0,0,0.04)] border border-slate-100">
+            <div className="w-full bg-white rounded-[24px] p-6 sm:p-8 shadow-[0_15px_35px_rgba(0,0,0,0.04)] border border-slate-100 flex flex-col justify-center">
               
-              <div className="flex justify-between items-start mb-6">
+              <div className="flex justify-between items-start mb-5">
                 <div>
-                  <h2 className="text-[20px] font-bold text-[#0F172A] mb-2 tracking-tight">Create Your Civora Account</h2>
-                  <p className="text-[12px] text-slate-500 font-medium leading-relaxed max-w-[250px]">
-                    Join thousands of citizens building a cleaner, smarter and better city together.
+                  <h2 className="text-[20px] font-bold text-[#0F172A] mb-2 tracking-tight">Create Your Account</h2>
+                  <p className="text-[12px] text-slate-500 font-medium leading-relaxed max-w-[220px]">
+                    Join thousands of citizens building a better city together.
                   </p>
                 </div>
-                <div className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-full">
+                <div className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-full shrink-0">
                   <span className="text-[11px] font-bold text-[#2D8C74]">{completedStepsCount}</span>
                   <span className="text-[11px] font-bold text-slate-400"> / 5</span>
                 </div>
               </div>
 
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
                 
                 <InputField 
                   label="Full Name" 
@@ -287,23 +337,50 @@ export function Register() {
                     required: true,
                     validate: value => value === passwordValue || "Passwords do not match"
                   })}
+                  onPaste={(e: any) => {
+                    e.preventDefault();
+                    setErrorMsg("Pasting passwords is not allowed.");
+                  }}
                 />
+
+                {errorMsg && (
+                  <div className="text-center p-2 rounded-lg bg-rose-50 border border-rose-100">
+                    <span className="text-xs font-semibold text-rose-600">{errorMsg}</span>
+                  </div>
+                )}
 
                 <button 
                   type="submit"
-                  disabled={completedStepsCount < 5}
-                  className={`w-full h-12 mt-2 rounded-[12px] font-bold text-[14px] transition-all flex items-center justify-center gap-2 ${
-                    completedStepsCount === 5 
-                      ? 'bg-[#2D8C74] text-white hover:bg-[#23705C] shadow-[0_8px_20px_rgba(45,140,116,0.3)] active:scale-[0.98] cursor-pointer' 
+                  disabled={completedStepsCount < 5 || isSubmitting}
+                  className={`w-full h-[46px] mt-1 rounded-[10px] font-bold text-[13px] transition-all flex items-center justify-center gap-2 ${
+                    (completedStepsCount === 5 && !isSubmitting)
+                      ? 'bg-[#2D8C74] text-white hover:bg-[#23705C] shadow-[0_6px_15px_rgba(45,140,116,0.25)] active:scale-[0.98] cursor-pointer' 
                       : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   }`}
                 >
-                  Create Account
-                  <ArrowRight className="w-[18px] h-[18px]" strokeWidth={3} />
+                  {isSubmitting ? 'Creating Account...' : 'Create Account'}
+                  <ArrowRight className="w-4 h-4" strokeWidth={3} />
                 </button>
               </form>
 
-              <p className="text-center mt-6 text-[12px] text-slate-500 font-medium">
+              <div className="flex items-center gap-3 my-4">
+                <div className="h-px bg-slate-100 flex-1"></div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">or continue with</span>
+                <div className="h-px bg-slate-100 flex-1"></div>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  type="button" 
+                  onClick={handleGoogleLogin}
+                  className="flex-1 flex items-center justify-center h-[42px] rounded-[10px] border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all gap-2 shadow-sm bg-white"
+                >
+                  <GoogleIcon />
+                  <span className="text-[12px] font-bold text-slate-700">Google</span>
+                </button>
+              </div>
+
+              <p className="text-center mt-5 text-[11px] text-slate-500 font-medium">
                 Already have an account?{' '}
                 <Link to="/login" className="text-[#2D8C74] font-bold hover:underline">
                   Login
@@ -316,8 +393,8 @@ export function Register() {
       </div>
 
       {/* Right Side - Animated City Panel */}
-      <div className="hidden lg:flex w-[55%] h-full p-4 relative z-10">
-        <div className="w-full h-full relative rounded-[32px] overflow-hidden shadow-2xl bg-[#0B1B3D]">
+      <div className="hidden lg:flex w-[55%] h-full p-4 lg:p-6 relative z-10 sticky top-0">
+        <div className="w-full h-full relative rounded-[24px] lg:rounded-[32px] overflow-hidden shadow-2xl bg-[#0B1B3D]">
           
           {/* Base Background (Always dark) */}
           <div className="absolute inset-0 bg-[#0B1B3D] z-0"></div>

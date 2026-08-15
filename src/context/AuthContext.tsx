@@ -3,9 +3,11 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 export type UserRole = 'admin' | 'citizen' | 'supervisor' | 'worker';
 
 export type User = { 
+  id?: string;
   name: string; 
   role: UserRole;
   email?: string;
+  profileImage?: string;
 } | null;
 
 interface AuthContextType {
@@ -18,16 +20,24 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<User>(() => {
+    const storedUser = localStorage.getItem('user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  });
+  const [token, setToken] = useState<string | null>(() => {
+    return localStorage.getItem('token');
+  });
 
   useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    if (storedToken && storedUser) {
+    // Sync state if localStorage changes in other tabs
+    const handleStorageChange = () => {
+      const storedToken = localStorage.getItem('token');
+      const storedUser = localStorage.getItem('user');
       setToken(storedToken);
-      setUser(JSON.parse(storedUser));
-    }
+      setUser(storedUser ? JSON.parse(storedUser) : null);
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const login = (newToken: string, newUser: User) => {

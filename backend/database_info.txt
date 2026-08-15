@@ -1,0 +1,10 @@
+Database Name: civora
+
+Collections Created by Mongoose (Based on Models):
+1. users 
+   (Derived from the 'User' model. Stores data for citizens, admins, supervisors, and workers)
+   
+2. complaints
+   (Derived from the 'Complaint' model. Stores data for reported issues like category, status, priority, etc.)
+
+Note: Mongoose automatically converts model names to lowercase, plural forms for collection names by default.

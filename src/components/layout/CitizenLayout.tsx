@@ -92,7 +92,7 @@ export function CitizenSidebar() {
 import { useAuth } from "../../context/AuthContext"
 
 export function CitizenNavbar() {
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
 
   return (
     <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-border bg-white/70 px-6 backdrop-blur-xl lg:px-10">
@@ -117,16 +117,16 @@ export function CitizenNavbar() {
         </Button>
         <div className="flex items-center gap-3 pl-4 border-l border-border">
           <div className="text-right hidden sm:block">
-            <p className="text-sm font-semibold text-heading">Alex Citizen</p>
+            <p className="text-sm font-semibold text-heading">{user?.name || 'Civora Citizen'}</p>
             <p className="text-xs text-muted-foreground">Level 3 Contributor</p>
           </div>
-          <div className="h-10 w-10 overflow-hidden rounded-full border-2 border-secondary/20 bg-muted">
+          <Link to="/citizen/profile" className="h-10 w-10 overflow-hidden rounded-full border-2 border-secondary/20 bg-muted hover:border-secondary transition-colors cursor-pointer">
             <img 
-              src="https://api.dicebear.com/7.x/notionists/svg?seed=Alex" 
-              alt="Citizen" 
+              src={user?.profileImage || `https://api.dicebear.com/7.x/notionists/svg?seed=${user?.name || 'Citizen'}`} 
+              alt="Citizen Profile" 
               className="h-full w-full object-cover"
             />
-          </div>
+          </Link>
         </div>
         <Link 
           to="/login"

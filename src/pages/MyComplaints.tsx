@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { motion } from "framer-motion"
-import { Search, Filter, ArrowUpDown, Eye, Clock, CheckCircle, AlertTriangle, ArrowRight } from "lucide-react"
+import { Search, Filter, ArrowUpDown, Eye, Clock, CheckCircle, AlertTriangle, ArrowRight, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Card, CardContent } from "@/components/ui/Card"
@@ -8,16 +8,65 @@ import { Badge } from "@/components/ui/Badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table"
 import { Link } from "react-router-dom"
 
-const complaintsData = [
-  { id: "CIV-8492", category: "Road", description: "Large pothole on main street", date: "2023-10-25", status: "Resolved", priority: "High" },
-  { id: "CIV-8491", category: "Garbage", description: "Trash not collected for 3 days", date: "2023-10-24", status: "In Progress", priority: "Medium" },
-  { id: "CIV-8490", category: "Street Light", description: "Street light broken near park", date: "2023-10-22", status: "Pending", priority: "Low" },
-  { id: "CIV-8489", category: "Water", description: "Water pipeline leakage", date: "2023-10-20", status: "Resolved", priority: "Emergency" },
-  { id: "CIV-8488", category: "Drainage", description: "Blocked drainage causing waterlogging", date: "2023-10-18", status: "In Progress", priority: "High" },
-]
+import { useAuth } from "../context/AuthContext"
+import { useEffect } from "react"
 
 export function MyComplaints() {
+  const { token } = useAuth()
   const [searchTerm, setSearchTerm] = useState("")
+  const [complaintsData, setComplaintsData] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchComplaints = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/citizen/complaints', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const mappedData = data.map((c: any) => ({
+            id: c._id.substring(c._id.length - 6).toUpperCase(), // Short ID
+            rawId: c._id, // Real DB ID for links
+            category: c.category,
+            description: c.description || c.title,
+            date: new Date(c.createdAt).toLocaleDateString(),
+            status: c.status,
+            priority: c.priority
+          }));
+          setComplaintsData(mappedData);
+        }
+      } catch (error) {
+        console.error("Error fetching complaints:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    if (token) fetchComplaints();
+  }, [token]);
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this complaint?")) return;
+    
+    try {
+      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        setComplaintsData(prev => prev.filter(c => c.rawId !== id));
+      } else {
+        alert("Failed to delete complaint.");
+      }
+    } catch (err) {
+      console.error("Error deleting complaint:", err);
+      alert("Error deleting complaint.");
+    }
+  }
 
   const getStatusBadge = (status: string) => {
     switch(status) {
@@ -87,9 +136,21 @@ export function MyComplaints() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {complaintsData.map((complaint) => (
-                  <TableRow key={complaint.id}>
-                    <TableCell className="font-medium">{complaint.id}</TableCell>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      Loading complaints...
+                    </TableCell>
+                  </TableRow>
+                ) : complaintsData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      You have not reported any complaints yet.
+                    </TableCell>
+                  </TableRow>
+                ) : complaintsData.filter(c => c.category.toLowerCase().includes(searchTerm.toLowerCase()) || c.description.toLowerCase().includes(searchTerm.toLowerCase())).map((complaint) => (
+                  <TableRow key={complaint.rawId}>
+                    <TableCell className="font-medium text-primary bg-primary/10 px-2 py-1 rounded-md inline-flex mt-3 ml-2">#{complaint.id}</TableCell>
                     <TableCell>{complaint.category}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{complaint.description}</TableCell>
                     <TableCell>{complaint.date}</TableCell>
@@ -100,11 +161,16 @@ export function MyComplaints() {
                     </TableCell>
                     <TableCell>{getStatusBadge(complaint.status)}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" asChild className="gap-2">
-                        <Link to={`/citizen/complaint/${complaint.id}`}>
-                          <Eye size={16} /> View
-                        </Link>
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="sm" asChild className="gap-2">
+                          <Link to={`/citizen/complaint/${complaint.rawId}`}>
+                            <Eye size={16} /> View
+                          </Link>
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(complaint.rawId)} className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-2">
+                          <Trash2 size={16} /> Delete
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -114,16 +180,20 @@ export function MyComplaints() {
 
           {/* Mobile Cards */}
           <div className="md:hidden space-y-4">
-            {complaintsData.map((complaint) => (
+            {isLoading ? (
+              <div className="text-center py-8 text-muted-foreground border border-border rounded-xl">Loading complaints...</div>
+            ) : complaintsData.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground border border-border rounded-xl">You have not reported any complaints yet.</div>
+            ) : complaintsData.filter(c => c.category.toLowerCase().includes(searchTerm.toLowerCase()) || c.description.toLowerCase().includes(searchTerm.toLowerCase())).map((complaint) => (
               <motion.div 
-                key={complaint.id}
+                key={complaint.rawId}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="border border-border rounded-xl p-4 bg-background/50 hover:bg-muted/30 transition-colors"
               >
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-1 rounded-md">{complaint.id}</span>
+                    <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-1 rounded-md">#{complaint.id}</span>
                     <h4 className="font-semibold text-heading mt-2">{complaint.category}</h4>
                   </div>
                   {getStatusBadge(complaint.status)}
@@ -131,9 +201,14 @@ export function MyComplaints() {
                 <p className="text-sm text-muted-foreground line-clamp-2 mb-4">{complaint.description}</p>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{complaint.date}</span>
-                  <Link to={`/citizen/complaint/${complaint.id}`} className="text-primary font-medium hover:underline flex items-center gap-1">
-                    Details <ArrowRight size={14} />
-                  </Link>
+                  <div className="flex gap-3">
+                    <button onClick={() => handleDelete(complaint.rawId)} className="text-destructive font-medium hover:underline flex items-center gap-1">
+                      <Trash2 size={14} /> Delete
+                    </button>
+                    <Link to={`/citizen/complaint/${complaint.rawId}`} className="text-primary font-medium hover:underline flex items-center gap-1">
+                      Details <ArrowRight size={14} />
+                    </Link>
+                  </div>
                 </div>
               </motion.div>
             ))}

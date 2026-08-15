@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   PlusCircle, FileText, Map, Bell, Award, User, Settings,
@@ -6,41 +6,16 @@ import {
   Star, Send
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-// --- DUMMY JSON DATA ---
-const statsData = [
-  { id: 1, title: "Submitted", count: 14, icon: FileText, color: "text-blue-600", bg: "bg-blue-50" },
-  { id: 2, title: "In Progress", count: 3, icon: Activity, color: "text-amber-600", bg: "bg-amber-50" },
-  { id: 3, title: "Resolved", count: 10, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50" },
-  { id: 4, title: "Pending", count: 1, icon: Clock, color: "text-rose-600", bg: "bg-rose-50" },
-];
+import { useAuth } from '../context/AuthContext';
 
 const quickActionsData = [
-  { id: 1, title: "Report Complaint", icon: PlusCircle, bg: "bg-[#3E766D]", text: "text-white", to: "/citizen/raise" },
-  { id: 2, title: "Track Complaint", icon: MapPin, bg: "bg-white", text: "text-[#3E766D]", to: "/citizen/track" },
+  { id: 1, title: "Report Complaint", icon: PlusCircle, bg: "bg-[#3E766D]", text: "text-white", to: "/citizen/raise-complaint" },
+  { id: 2, title: "Track Complaint", icon: MapPin, bg: "bg-white", text: "text-[#3E766D]", to: "/citizen/track-complaint" },
   { id: 3, title: "Emergency", icon: AlertTriangle, bg: "bg-rose-500", text: "text-white", to: "/emergency" },
   { id: 4, title: "Nearby Issues", icon: Map, bg: "bg-white", text: "text-[#3E766D]", to: "/citizen/nearby" },
 ];
 
-const recentComplaintsData = [
-  { 
-    id: "#C-8921", title: "Streetlight not working", category: "Electricity", 
-    status: "Working", priority: "Medium", date: "Aug 05, 2026", progress: 60
-  },
-  { 
-    id: "#C-8910", title: "Severe Pothole on 5th Ave", category: "Roads", 
-    status: "Resolved", priority: "High", date: "Aug 02, 2026", progress: 100
-  },
-  { 
-    id: "#C-8933", title: "Water pipe leakage", category: "Water", 
-    status: "Assigned", priority: "Critical", date: "Aug 06, 2026", progress: 30
-  },
-];
-
-const announcementsData = [
-  { id: 1, type: "Emergency Alert", title: "Heavy Rain Warning", time: "2 hours ago", icon: ShieldAlert, color: "text-rose-500" },
-  { id: 2, type: "Government News", title: "New Recycling Program", time: "1 day ago", icon: Award, color: "text-[#3E766D]" },
-];
+// Quick actions remain constant
 
 // --- STYLING HELPERS ---
 const getStatusColor = (status: string) => {
@@ -66,6 +41,43 @@ const getPriorityColor = (priority: string) => {
 
 
 export function CitizenDashboard() {
+  const { token } = useAuth();
+  const [statsData, setStatsData] = useState<any[]>([]);
+  const [recentComplaintsData, setRecentComplaintsData] = useState<any[]>([]);
+  const [announcementsData, setAnnouncementsData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/citizen/dashboard', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const iconMap: { [key: string]: any } = {
+            FileText, Activity, CheckCircle, Clock, ShieldAlert, Award
+          };
+          
+          setStatsData(data.stats.map((s: any) => ({ ...s, icon: iconMap[s.icon] || FileText })));
+          setRecentComplaintsData(data.recentComplaints);
+          setAnnouncementsData(data.announcements.map((a: any) => ({ ...a, icon: iconMap[a.icon] || Bell })));
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    if (token) fetchData();
+  }, [token]);
+
+  if (isLoading) {
+    return <div className="flex justify-center items-center h-64 text-slate-500 font-medium">Loading dashboard...</div>;
+  }
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -134,14 +146,20 @@ export function CitizenDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {recentComplaintsData.map((complaint) => (
-                    <tr key={complaint.id} className="hover:bg-slate-50/50 transition-colors group cursor-pointer">
+                  {recentComplaintsData.length > 0 ? recentComplaintsData.map((complaint) => {
+                    const progress = complaint.status === 'Resolved' ? 100 : complaint.status === 'Working' ? 60 : complaint.status === 'Assigned' ? 30 : 10;
+                    return (
+                    <tr key={complaint._id || complaint.id} className="hover:bg-slate-50/50 transition-colors group cursor-pointer">
                       <td className="py-4 pr-4">
                         <p className="font-bold text-slate-800 text-[15px]">{complaint.title}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs font-medium text-slate-400">{complaint.id}</span>
+                          <span className="text-xs font-medium text-slate-400">
+                            #{complaint._id ? complaint._id.substring(complaint._id.length - 6).toUpperCase() : complaint.id}
+                          </span>
                           <span className="text-slate-300">•</span>
-                          <span className="text-xs text-slate-500">{complaint.date}</span>
+                          <span className="text-xs text-slate-500">
+                            {complaint.createdAt ? new Date(complaint.createdAt).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : complaint.date}
+                          </span>
                         </div>
                       </td>
                       <td className="py-4 pr-4">
@@ -159,14 +177,21 @@ export function CitizenDashboard() {
                           <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden max-w-[120px]">
                             <div 
                               className="h-full bg-[#3E766D] rounded-full"
-                              style={{ width: `${complaint.progress}%` }}
+                              style={{ width: `${progress}%` }}
                             ></div>
                           </div>
-                          <span className="text-xs font-bold text-slate-500">{complaint.progress}%</span>
+                          <span className="text-xs font-bold text-slate-500">{progress}%</span>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-slate-500">
+                        No recent complaints found. Report an issue to see it here!
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
