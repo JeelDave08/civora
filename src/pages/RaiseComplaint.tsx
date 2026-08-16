@@ -26,6 +26,8 @@ export function RaiseComplaint() {
     description: "",
     priority: "Medium",
     location: "",
+    lat: null as number | null,
+    lng: null as number | null,
     imageUrl: ""
   })
 
@@ -72,13 +74,15 @@ export function RaiseComplaint() {
           const response = await fetch(`${apiUrl}?key=${apiKey}&lat=${lat}&lon=${lon}&format=json`)
           if (response.ok) {
             const data = await response.json()
-            setFormData(prev => ({ ...prev, location: data.display_name }))
+            setFormData(prev => ({ ...prev, location: data.display_name, lat, lng: lon }))
           } else {
-            setFormData(prev => ({ ...prev, location: `${lat.toFixed(6)}, ${lon.toFixed(6)}` }))
+            setFormData(prev => ({ ...prev, location: `${lat.toFixed(6)}, ${lon.toFixed(6)}`, lat, lng: lon }))
           }
         } catch (error) {
           console.error("Error fetching location details:", error)
-          setFormData(prev => ({ ...prev, location: `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}` }))
+          const lat = position.coords.latitude
+          const lon = position.coords.longitude
+          setFormData(prev => ({ ...prev, location: `${lat.toFixed(6)}, ${lon.toFixed(6)}`, lat, lng: lon }))
         } finally {
           setIsDetectingLocation(false)
         }
@@ -106,6 +110,8 @@ export function RaiseComplaint() {
           category: formData.category,
           priority: formData.priority,
           location: formData.location,
+          lat: formData.lat,
+          lng: formData.lng,
           imageUrl: formData.imageUrl
         })
       })

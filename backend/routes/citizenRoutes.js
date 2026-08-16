@@ -97,14 +97,18 @@ router.delete('/complaints/:id', protect, async (req, res) => {
 // Create Complaint
 router.post('/complaints', protect, async (req, res) => {
   try {
-    const { title, description, category, priority, location, imageUrl } = req.body;
+    const { title, description, category, priority, location, lat, lng, imageUrl } = req.body;
     
     const newComplaint = new Complaint({
       title,
       description,
       category,
       priority,
-      location: { address: location },
+      location: { 
+        address: location,
+        lat: lat || null,
+        lng: lng || null
+      },
       imageUrl,
       citizenId: req.user.id,
       status: 'New'
@@ -144,6 +148,20 @@ router.put('/profile', protect, async (req, res) => {
     res.json(updatedUser);
   } catch (err) {
     res.status(500).json({ message: 'Server error updating profile' });
+  }
+});
+
+// Get Nearby Complaints (all complaints with location data)
+router.get('/nearby-complaints', protect, async (req, res) => {
+  try {
+    const complaints = await Complaint.find({
+      'location.lat': { $exists: true, $ne: null },
+      'location.lng': { $exists: true, $ne: null }
+    }).populate('citizenId', 'fullName').sort({ createdAt: -1 }).limit(100);
+    res.json(complaints);
+  } catch (err) {
+    console.error('Error fetching nearby complaints:', err);
+    res.status(500).json({ message: 'Server error fetching nearby complaints' });
   }
 });
 
