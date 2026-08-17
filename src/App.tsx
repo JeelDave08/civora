@@ -38,7 +38,6 @@ import { LiveTracking } from "./pages/LiveTracking"
 import { TrackComplaint } from "./pages/TrackComplaint"
 import { PublicStatistics } from "./pages/PublicStatistics"
 import { Notifications } from "./pages/Notifications"
-import { Rewards } from "./pages/Rewards"
 import { Feedback } from "./pages/Feedback"
 import { ContactUs } from "./pages/ContactUs"
 import { AboutUs } from "./pages/AboutUs"
@@ -133,7 +132,6 @@ function App() {
                 <Route path="track-complaint" element={<TrackComplaint />} />
                 <Route path="nearby" element={<NearbyIssues />} />
                 <Route path="notifications" element={<Notifications />} />
-                <Route path="rewards" element={<Rewards />} />
                 <Route path="profile" element={<Profile />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="search" element={<SearchResults />} />

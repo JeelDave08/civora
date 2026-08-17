@@ -8,6 +8,8 @@ export type User = {
   role: UserRole;
   email?: string;
   profileImage?: string;
+  department?: string;
+  permissions?: string[];
 } | null;
 
 interface AuthContextType {

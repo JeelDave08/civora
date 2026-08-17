@@ -37,13 +37,15 @@ export function Sidebar() {
   if (user?.role === 'supervisor') navItems = SUPERVISOR_ITEMS;
   if (user?.role === 'worker') navItems = WORKER_ITEMS;
 
+  const portalTitle = user?.role === 'supervisor' ? 'Civora Supervisor' : user?.role === 'worker' ? 'Civora Worker' : 'Civora Admin';
+
   return (
     <aside className="fixed left-0 top-0 z-40 hidden h-screen w-72 flex-col border-r border-border bg-white/50 backdrop-blur-xl lg:flex">
-      <div className="flex pt-10 pb-6 items-center gap-4 px-8">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[20px] bg-[#52CCA7] text-white shadow-sm">
-          <Activity size={36} strokeWidth={2.5} />
+      <div className="flex pt-8 pb-6 items-center gap-3 px-6">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-[#52CCA7] text-white shadow-sm">
+          <Activity size={28} strokeWidth={2.5} />
         </div>
-        <span className="text-[34px] font-bold tracking-tight text-[#293B47]">Civora</span>
+        <span className="text-2xl font-bold tracking-tight text-[#293B47] leading-tight">{portalTitle}</span>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">

@@ -45,6 +45,7 @@ export function Login() {
   const [isLoading, setIsLoading] = useState(false)
   const [isLanguageOpen, setIsLanguageOpen] = useState(false)
   const [selectedLanguage, setSelectedLanguage] = useState('English (IN)')
+  const [errorMsg, setErrorMsg] = useState('')
 
   const languageMapping: Record<string, string> = {
     'العربية': 'ar', 'Čeština': 'cs', 'Dansk': 'da', 'Nederlands': 'nl', 
@@ -89,9 +90,24 @@ export function Login() {
 
   const onSubmit = async (data: any) => {
     setIsLoading(true);
+    setErrorMsg('');
     try {
-      const email = data.loginId.toLowerCase();
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const email = data.loginId.toLowerCase().trim();
+      const isAdminLogin = selectedRole === 'Admin';
+
+      // Client-side validation for admin email domain
+      if (isAdminLogin && !email.endsWith('@admin.civora.com')) {
+        setErrorMsg('Admin email must end with @admin.civora.com');
+        setIsLoading(false);
+        return;
+      }
+
+      // Use admin-specific endpoint when Admin role is selected
+      const endpoint = isAdminLogin
+        ? 'http://localhost:5000/api/admin-auth/login'
+        : 'http://localhost:5000/api/auth/login';
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -113,11 +129,11 @@ export function Login() {
         else if (role === 'worker') navigate("/worker/dashboard");
         else navigate("/citizen/dashboard");
       } else {
-        console.error("Login failed:", result.message);
-        // Optionally show an error message to the user here
+        setErrorMsg(result.message || 'Login failed. Please check your credentials.');
       }
     } catch (error) {
       console.error("Error during login:", error);
+      setErrorMsg('Connection error. Please make sure the server is running.');
     } finally {
       setIsLoading(false);
     }
@@ -342,13 +358,21 @@ export function Login() {
 
           <form id="login-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             
+            {/* Error Message */}
+            {errorMsg && (
+              <div className="bg-red-50 border border-red-200 text-red-600 text-[13px] font-medium px-4 py-3 rounded-[14px] flex items-center gap-2 animate-pulse">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                {errorMsg}
+              </div>
+            )}
+
             <div className="relative">
               <Mail className="absolute left-4 top-[18px] w-5 h-5 text-gray-400" strokeWidth={1.5} />
               <input
                 type="text"
                 {...register("loginId", { required: true })}
                 className="w-full h-[56px] pl-[44px] pr-4 rounded-[16px] border border-gray-200 bg-white text-[#1F2937] placeholder-gray-400 focus:outline-none focus:border-[#1E9D74] focus:ring-1 focus:ring-[#1E9D74] transition-all text-[14px]"
-                placeholder="Email or Mobile Number"
+                placeholder={selectedRole === 'Admin' ? 'admin@admin.civora.com' : 'Email or Mobile Number'}
               />
             </div>
 
@@ -409,29 +433,41 @@ export function Login() {
             </button>
           </form>
 
-          <div className="flex items-center gap-4 my-8">
-            <div className="h-px bg-gray-200 flex-1"></div>
-            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-widest">OR CONTINUE WITH</span>
-            <div className="h-px bg-gray-200 flex-1"></div>
-          </div>
+          {/* Hide Google login for Admin role */}
+          {selectedRole !== 'Admin' && (
+            <>
+              <div className="flex items-center gap-4 my-8">
+                <div className="h-px bg-gray-200 flex-1"></div>
+                <span className="text-[11px] font-medium text-gray-400 uppercase tracking-widest">OR CONTINUE WITH</span>
+                <div className="h-px bg-gray-200 flex-1"></div>
+              </div>
 
-          <div className="flex gap-4 flex-col sm:flex-row">
-            <button 
-              type="button" 
-              onClick={handleGoogleLogin}
-              className="flex-1 flex items-center justify-center h-[52px] rounded-[16px] border border-gray-200 hover:bg-gray-50 transition-all gap-2 bg-white text-[13px] font-semibold text-[#1F2937]"
-            >
-              <GoogleIcon />
-              Google
-            </button>
-          </div>
+              <div className="flex gap-4 flex-col sm:flex-row">
+                <button 
+                  type="button" 
+                  onClick={handleGoogleLogin}
+                  className="flex-1 flex items-center justify-center h-[52px] rounded-[16px] border border-gray-200 hover:bg-gray-50 transition-all gap-2 bg-white text-[13px] font-semibold text-[#1F2937]"
+                >
+                  <GoogleIcon />
+                  Google
+                </button>
+              </div>
+            </>
+          )}
 
-          <p className="text-center mt-8 text-[13px] text-gray-500 font-medium">
-            Don't have an account?{' '}
-            <Link to="/register" className="text-[#1E9D74] font-semibold hover:text-[#168562] transition-colors ml-1">
-              Register Now
-            </Link>
-          </p>
+          {selectedRole !== 'Admin' && (
+            <p className="text-center mt-8 text-[13px] text-gray-500 font-medium">
+              Don't have an account?{' '}
+              <Link to="/register" className="text-[#1E9D74] font-semibold hover:text-[#168562] transition-colors ml-1">
+                Register Now
+              </Link>
+            </p>
+          )}
+          {selectedRole === 'Admin' && (
+            <p className="text-center mt-8 text-[12px] text-gray-400 font-medium">
+              Admin accounts are managed internally. Contact your system administrator.
+            </p>
+          )}
 
         </div>
       </div>

@@ -17,10 +17,14 @@ mongoose.connect(process.env.MONGO_URI)
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
+const adminAuthRoutes = require('./routes/adminAuthRoutes');
 const citizenRoutes = require('./routes/citizenRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
+app.use('/api/admin-auth', adminAuthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/citizen', citizenRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.get('/', (req, res) => {
   res.send('Civora API is running...');

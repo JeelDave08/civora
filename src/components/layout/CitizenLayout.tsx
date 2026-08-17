@@ -24,7 +24,6 @@ const NAV_ITEMS = [
   { name: "Track Complaint", href: "/citizen/track-complaint", icon: Navigation },
   { name: "Nearby Issues", href: "/citizen/nearby", icon: MapPin },
   { name: "Notifications", href: "/citizen/notifications", icon: Bell },
-  { name: "Rewards", href: "/citizen/rewards", icon: Award },
   { name: "Profile", href: "/citizen/profile", icon: User },
   { name: "Settings", href: "/citizen/settings", icon: Settings },
 ]

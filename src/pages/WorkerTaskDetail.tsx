@@ -83,7 +83,7 @@ export function WorkerTaskDetail() {
             </div>
 
             {/* Step 2: Before Image */}
-            <div className={`p-6 rounded-3xl border-2 transition-all ${taskState === 'arrived' ? 'border-[#4CC9B0] bg-[#4CC9B0]/5' : 'border-slate-100 bg-slate-50 ' + (taskState === 'assigned' ? 'opacity-30 pointer-events-none' : taskState !== 'arrived' ? 'opacity-50' : '')}`}>
+            <div className={`p-6 rounded-3xl border-2 transition-all ${taskState === 'arrived' ? 'border-[#4CC9B0] bg-[#4CC9B0]/5' : 'border-slate-100 bg-slate-50 ' + (taskState === 'assigned' ? 'opacity-30 pointer-events-none' : 'opacity-50')}`}>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
                   <span className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-[#4CC9B0] text-sm">2</span> 

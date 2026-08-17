@@ -165,7 +165,7 @@ export function ComplaintDetails() {
                 <h4 className="text-sm font-medium text-heading mb-3">Attached Media</h4>
                 {complaint.images && complaint.images.length > 0 ? (
                   <div className="flex gap-4 flex-wrap">
-                    {complaint.images.map((img, i) => (
+                    {complaint.images.map((img: string, i: number) => (
                       <div 
                         key={i} 
                         onClick={() => setSelectedImage(img)}
@@ -221,7 +221,7 @@ export function ComplaintDetails() {
             </CardHeader>
             <CardContent>
               <div className="relative pl-6 space-y-6 before:absolute before:inset-y-0 before:left-[11px] before:w-px before:bg-border">
-                {complaint.timeline.map((item, i) => (
+                {complaint.timeline.map((item: any, i: number) => (
                   <div key={i} className="relative">
                     <div className={`absolute -left-9 h-6 w-6 rounded-full border-4 border-card flex items-center justify-center ${item.active ? 'bg-primary text-white' : 'bg-muted'}`}>
                       {item.active && <CheckCircle size={12} />}
