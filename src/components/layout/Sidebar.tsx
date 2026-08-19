@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom"
 import { motion } from "framer-motion"
-import { LayoutDashboard, Users, FileText, Settings, Map, Activity, ListChecks, Bell } from "lucide-react"
+import { LayoutDashboard, Users, FileText, Settings, Map, Activity, ListChecks, Bell, UserCog } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "../ui/Button"
 
@@ -10,6 +10,7 @@ const ADMIN_ITEMS = [
   { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
   { name: "Services", href: "/admin/services", icon: FileText },
   { name: "Citizens", href: "/admin/citizens", icon: Users },
+  { name: "User Access", href: "/admin/personnel", icon: UserCog },
   { name: "City Map", href: "/admin/map", icon: Map },
   { name: "Monitoring", href: "/admin/monitoring", icon: Activity },
   { name: "Settings", href: "/admin/settings", icon: Settings },
@@ -33,11 +34,12 @@ export function Sidebar() {
   const location = useLocation()
   const { user } = useAuth()
   
+  const role = (user?.role || '').toLowerCase();
   let navItems = ADMIN_ITEMS;
-  if (user?.role === 'supervisor') navItems = SUPERVISOR_ITEMS;
-  if (user?.role === 'worker') navItems = WORKER_ITEMS;
+  if (role === 'supervisor') navItems = SUPERVISOR_ITEMS;
+  if (role === 'worker') navItems = WORKER_ITEMS;
 
-  const portalTitle = user?.role === 'supervisor' ? 'Civora Supervisor' : user?.role === 'worker' ? 'Civora Worker' : 'Civora Admin';
+  const portalTitle = role === 'supervisor' ? 'Civora Supervisor' : role === 'worker' ? 'Civora Worker' : 'Civora Admin';
 
   return (
     <aside className="fixed left-0 top-0 z-40 hidden h-screen w-72 flex-col border-r border-border bg-white/50 backdrop-blur-xl lg:flex">

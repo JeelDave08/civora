@@ -19,7 +19,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 })
 
-const DEFAULT_LOCATION = { lat: 23.0225, lng: 72.5714 }
+const DEFAULT_LOCATION = { lat: 22.3039, lng: 70.8022 } // Rajkot, Gujarat, India
 
 const workerPinIcon = new L.DivIcon({
   html: `<div style="

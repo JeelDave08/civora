@@ -45,6 +45,9 @@ export function CitizenDashboard() {
   const [statsData, setStatsData] = useState<any[]>([]);
   const [recentComplaintsData, setRecentComplaintsData] = useState<any[]>([]);
   const [announcementsData, setAnnouncementsData] = useState<any[]>([]);
+  const [allIssuedComplaints, setAllIssuedComplaints] = useState<any[]>([]);
+  const [showAllComplaintsModal, setShowAllComplaintsModal] = useState(false);
+  const [isLoadingAllComplaints, setIsLoadingAllComplaints] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -74,6 +77,24 @@ export function CitizenDashboard() {
     if (token) fetchData();
   }, [token]);
 
+  const fetchAllIssuedComplaints = async () => {
+    setIsLoadingAllComplaints(true);
+    setShowAllComplaintsModal(true);
+    try {
+      const response = await fetch('http://localhost:5000/api/citizen/nearby-complaints', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAllIssuedComplaints(data);
+      }
+    } catch (err) {
+      console.error('Error fetching all public complaints:', err);
+    } finally {
+      setIsLoadingAllComplaints(false);
+    }
+  };
+
   if (isLoading) {
     return <div className="flex justify-center items-center h-64 text-slate-500 font-medium">Loading dashboard...</div>;
   }
@@ -93,7 +114,7 @@ export function CitizenDashboard() {
           <p className="text-slate-500 mt-1.5">Welcome back! Here is what's happening in your city.</p>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {quickActionsData.map((action) => (
             <Link 
               key={action.id}
@@ -104,6 +125,13 @@ export function CitizenDashboard() {
               <span className="hidden sm:inline">{action.title}</span>
             </Link>
           ))}
+          <button
+            onClick={fetchAllIssuedComplaints}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-[16px] font-semibold text-sm shadow-sm hover:shadow-md transition-all bg-[#4CC9B0] text-white border border-[#4CC9B0]"
+          >
+            <FileText size={18} />
+            <span className="hidden sm:inline">All Issued</span>
+          </button>
         </div>
       </div>
 
@@ -131,8 +159,19 @@ export function CitizenDashboard() {
           {/* Recent Complaints Table */}
           <div className="bg-white rounded-[20px] border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-slate-800">Recent Complaints</h3>
-              <Link to="/citizen/complaints" className="text-sm font-semibold text-[#3E766D] hover:underline">View All</Link>
+              <div>
+                <h3 className="text-xl font-bold text-slate-800">My Recent Complaints</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Complaints filed by your account</p>
+              </div>
+              <div className="flex gap-3">
+                <button 
+                  onClick={fetchAllIssuedComplaints}
+                  className="text-xs font-extrabold text-[#4CC9B0] bg-[#4CC9B0]/10 hover:bg-[#4CC9B0]/20 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Browse All City Issues
+                </button>
+                <Link to="/citizen/complaints" className="text-sm font-semibold text-[#3E766D] hover:underline">View My All</Link>
+              </div>
             </div>
             
             <div className="overflow-x-auto">
@@ -203,11 +242,9 @@ export function CitizenDashboard() {
               <h3 className="text-xl font-bold text-slate-800">Nearby Complaints Map</h3>
               <Link to="/citizen/nearby" className="text-sm font-semibold text-slate-500 hover:text-slate-800">Open in Maps</Link>
             </div>
-            {/* Google Maps Placeholder */}
             <div className="w-full h-[300px] bg-slate-100 rounded-[16px] border border-slate-200 overflow-hidden relative group">
               <div className="absolute inset-0 bg-[url('https://maps.googleapis.com/maps/api/staticmap?center=New+York,NY&zoom=13&size=800x400&maptype=roadmap&key=dummy')] bg-cover bg-center opacity-50 grayscale group-hover:grayscale-0 transition-all duration-500"></div>
               
-              {/* Dummy Map Pins */}
               <div className="absolute top-1/3 left-1/4 animate-bounce">
                 <MapPin className="text-rose-500 drop-shadow-md" size={32} fill="white" />
               </div>
@@ -249,7 +286,6 @@ export function CitizenDashboard() {
 
           {/* Feedback Card */}
           <div className="bg-gradient-to-br from-[#3E766D] to-[#2D5A52] rounded-[20px] shadow-[0_10px_30px_rgba(62,118,109,0.2)] p-6 text-white relative overflow-hidden">
-            {/* Decor shapes */}
             <div className="absolute top-[-20%] right-[-10%] w-32 h-32 bg-white/10 rounded-full blur-[20px]"></div>
             
             <div className="relative z-10">
@@ -280,6 +316,60 @@ export function CitizenDashboard() {
         </div>
       </div>
 
+      {/* ALL ISSUED COMPLAINTS MODAL */}
+      {showAllComplaintsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-6 lg:p-8 w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl border border-slate-100 relative overflow-hidden"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+              <div>
+                <h3 className="text-2xl font-extrabold text-slate-900">All Issued City Complaints</h3>
+                <p className="text-xs text-slate-500 mt-1">Browse all civic complaints submitted across the city.</p>
+              </div>
+              <button 
+                onClick={() => setShowAllComplaintsModal(false)}
+                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {isLoadingAllComplaints ? (
+              <div className="py-16 text-center text-slate-500 font-medium">Loading issued complaints...</div>
+            ) : allIssuedComplaints.length === 0 ? (
+              <div className="py-16 text-center text-slate-500">No public complaints found.</div>
+            ) : (
+              <div className="overflow-y-auto flex-1 pr-2 space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  {allIssuedComplaints.map((item: any) => (
+                    <div key={item._id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-2">
+                      <div className="flex justify-between items-start gap-2">
+                        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                          {item.category || 'General'}
+                        </span>
+                        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${getStatusColor(item.status)}`}>
+                          {item.status}
+                        </span>
+                      </div>
+                      <h4 className="font-extrabold text-slate-800 text-sm">{item.title}</h4>
+                      <p className="text-xs text-slate-500 line-clamp-2">{item.description}</p>
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-200/50">
+                        <span>Issued by: {item.citizenId?.fullName || 'Citizen'}</span>
+                        <span>{new Date(item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </div>
+      )}
+
     </motion.div>
   );
 }
+

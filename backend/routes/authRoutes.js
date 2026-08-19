@@ -38,24 +38,68 @@ router.post('/register', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
   try {
-    const { loginId, password } = req.body; // loginId can be email
+    const { loginId, password } = req.body;
+    if (!loginId || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
+
+    const cleanEmail = loginId.trim().toLowerCase();
     
-    // For simplicity, checking email
-    const user = await User.findOne({ email: loginId.toLowerCase() });
+    // Multi-collection lookup: User, Supervisor, FieldWorker
+    const Supervisor = require('../models/Supervisor');
+    const FieldWorker = require('../models/FieldWorker');
+
+    let user = await User.findOne({ email: cleanEmail });
     if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      user = await Supervisor.findOne({ email: cleanEmail });
+    }
+    if (!user) {
+      user = await FieldWorker.findOne({ email: cleanEmail });
+    }
+
+    // Fallback: Check personalEmail if login by personal email was attempted
+    if (!user) {
+      user = await Supervisor.findOne({ personalEmail: cleanEmail });
+    }
+    if (!user) {
+      user = await FieldWorker.findOne({ personalEmail: cleanEmail });
+    }
+
+    if (!user) {
+      console.warn(`[LOGIN FAIL] No user found with email/personalEmail: ${cleanEmail}`);
+      return res.status(400).json({ message: 'Invalid credentials: User account not found' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      console.warn(`[LOGIN FAIL] Password mismatch for email: ${cleanEmail}`);
+      return res.status(400).json({ message: 'Invalid credentials: Password incorrect' });
     }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const role = user.role || 'citizen';
+    const token = jwt.sign({ id: user._id, role }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
-    res.json({ token, user: { id: user._id, email: user.email, name: user.fullName, role: user.role } });
+    // Log Activity
+    try {
+      const ActivityLog = require('../models/ActivityLog');
+      await new ActivityLog({
+        actorRole: role,
+        actorName: user.fullName || user.email,
+        action: 'USER_LOGIN',
+        details: `${role === 'supervisor' ? 'Supervisor' : role === 'worker' ? 'Field Worker' : 'Citizen'} logged into system: ${user.fullName} (${user.email})`,
+        targetType: role === 'supervisor' ? 'Supervisor' : role === 'worker' ? 'FieldWorker' : 'User',
+        targetId: user._id,
+        ipAddress: req.ip
+      }).save();
+    } catch (logErr) {
+      console.warn('Login activity log skipped:', logErr.message);
+    }
+
+    console.log(`[LOGIN SUCCESS] User logged in: ${user.fullName} (${user.email}) Role: ${role}`);
+    res.json({ token, user: { id: user._id, email: user.email, name: user.fullName, role } });
   } catch (err) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Login route error:', err);
+    res.status(500).json({ message: 'Server error during login: ' + err.message });
   }
 });
 

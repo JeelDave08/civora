@@ -224,6 +224,90 @@ export function AdminMonitoring() {
           )}
         </CardContent>
       </Card>
+
+      {/* Admin Real-Time Activity & Notifications Feed */}
+      <AdminActivityFeed token={token} />
     </motion.div>
+  );
+}
+
+function AdminActivityFeed({ token }: { token: string | null }) {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  const fetchLogs = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE}/activity-logs?limit=40`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.logs || []);
+      }
+    } catch (e) {
+      console.error('Error fetching logs:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="rounded-[24px] border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] overflow-hidden mt-6">
+      <CardHeader className="border-b border-slate-100 bg-slate-50/50 p-6 flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-xl font-bold text-slate-800">Supervisors & Field Workers Notifications Feed</CardTitle>
+          <CardDescription className="text-xs text-slate-500 mt-1">Real-time log of supervisor logins, field worker logins, assignments, and work progress.</CardDescription>
+        </div>
+        <button 
+          onClick={fetchLogs} 
+          className="text-xs font-bold bg-white border border-slate-200 hover:bg-slate-50 px-3.5 py-2 rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+        >
+          <Activity size={14} className="text-[#4CC9B0]" /> Refresh Log
+        </button>
+      </CardHeader>
+      <CardContent className="p-6">
+        {loading ? (
+          <div className="flex items-center justify-center py-12 text-slate-400">
+            <Loader2 className="w-6 h-6 text-[#4CC9B0] animate-spin mr-2" />
+            <span className="text-xs font-semibold">Loading system telemetry logs...</span>
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="text-center py-12 text-slate-400 text-xs font-medium">
+            No system notifications recorded yet.
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+            {logs.map((log) => (
+              <div key={log.id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/60 hover:bg-white hover:shadow-sm transition-all flex items-start gap-4">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-xs font-bold uppercase shadow-sm ${
+                  log.actorRole === 'supervisor' ? 'bg-blue-100 text-blue-700' :
+                  log.actorRole === 'worker' ? 'bg-purple-100 text-purple-700' :
+                  'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {log.actorRole ? log.actorRole.charAt(0) : 'A'}
+                </div>
+                <div className="flex-1">
+                  <div className="flex justify-between items-start">
+                    <span className="font-bold text-slate-800 text-xs">{log.title}</span>
+                    <span className="text-[10px] text-slate-400 font-semibold">{log.time}</span>
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium mt-0.5">{log.details}</p>
+                  <div className="mt-1.5 flex items-center gap-2 text-[10px] text-slate-400">
+                    <span className="font-bold text-slate-500">By: {log.actorName}</span>
+                    <span>•</span>
+                    <span className="uppercase font-extrabold text-[#4CC9B0]">{log.actorRole}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

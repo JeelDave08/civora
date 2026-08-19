@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 const { adminProtect } = require('../middleware/adminMiddleware');
 
 // Models
@@ -19,11 +20,17 @@ const Department = require('../models/Department');
 // GET /api/admin/dashboard — Dashboard stats + recent data
 router.get('/dashboard', adminProtect, async (req, res) => {
   try {
-    // Complaint stats
+    const days = parseInt(req.query.days) || 7;
+    const dateThreshold = new Date();
+    dateThreshold.setDate(dateThreshold.getDate() - days);
+
+    // Complaint stats (Filtered by selected days for unassigned & complaints in date range)
+    const complaintsInRange = await Complaint.find({ createdAt: { $gte: dateThreshold } }).sort({ createdAt: -1 });
     const allComplaints = await Complaint.find().sort({ createdAt: -1 });
+    
     const totalComplaints = allComplaints.length;
-    const pendingCount = allComplaints.filter(c => c.status === 'New').length;
-    const inProgressCount = allComplaints.filter(c => ['Assigned', 'Working'].includes(c.status)).length;
+    const pendingCount = complaintsInRange.filter(c => c.status === 'New').length;
+    const inProgressCount = complaintsInRange.filter(c => ['Assigned', 'Working'].includes(c.status)).length;
     const resolvedToday = allComplaints.filter(c => {
       if (c.status !== 'Resolved' && c.status !== 'Closed') return false;
       const today = new Date();
@@ -37,10 +44,13 @@ router.get('/dashboard', adminProtect, async (req, res) => {
     const totalSupervisors = await User.countDocuments({ role: 'supervisor' });
     const totalWorkers = await User.countDocuments({ role: 'worker' });
 
-    // Unassigned complaints (for the tickets panel)
-    const unassignedComplaints = await Complaint.find({ status: 'New' })
+    // Unassigned complaints in selected time frame (for the tickets panel)
+    const unassignedComplaints = await Complaint.find({ 
+      status: 'New',
+      createdAt: { $gte: dateThreshold }
+    })
       .sort({ createdAt: -1 })
-      .limit(5)
+      .limit(10)
       .populate('citizenId', 'fullName');
 
     // Recent announcements
@@ -49,13 +59,14 @@ router.get('/dashboard', adminProtect, async (req, res) => {
       .limit(5);
 
     const stats = [
-      { title: 'Pending Complaints', value: String(pendingCount), icon: 'Clock', color: 'text-amber-500', bg: 'bg-amber-50' },
+      { title: `Pending Complaints (${days}D)`, value: String(pendingCount), icon: 'Clock', color: 'text-amber-500', bg: 'bg-amber-50' },
       { title: 'Resolved Today', value: String(resolvedToday), icon: 'CheckCircle', color: 'text-[#4CC9B0]', bg: 'bg-[#4CC9B0]/10' },
       { title: 'Active Supervisors', value: String(totalSupervisors), icon: 'UserCheck', color: 'text-[#7DB9D7]', bg: 'bg-[#7DB9D7]/10' },
       { title: 'Field Workers', value: String(totalWorkers), icon: 'Users', color: 'text-purple-500', bg: 'bg-purple-50' },
     ];
 
     res.json({
+      days,
       stats,
       unassignedComplaints: unassignedComplaints.map(c => ({
         id: `#CMP-${String(c._id).slice(-3).toUpperCase()}`,
@@ -97,12 +108,20 @@ router.get('/dashboard', adminProtect, async (req, res) => {
 // GET /api/admin/complaints — All complaints with filters
 router.get('/complaints', adminProtect, async (req, res) => {
   try {
-    const { status, category, priority, search, page = 1, limit = 20 } = req.query;
+    const { status, category, priority, search, days, page = 1, limit = 20 } = req.query;
     const filter = {};
     
     if (status) filter.status = status;
     if (category) filter.category = category;
     if (priority) filter.priority = priority;
+    if (days) {
+      const numDays = parseInt(days);
+      if (!isNaN(numDays)) {
+        const dateThreshold = new Date();
+        dateThreshold.setDate(dateThreshold.getDate() - numDays);
+        filter.createdAt = { $gte: dateThreshold };
+      }
+    }
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: 'i' } },
@@ -137,27 +156,33 @@ router.get('/complaints', adminProtect, async (req, res) => {
 // PUT /api/admin/complaints/:id/assign — Assign complaint to worker
 router.put('/complaints/:id/assign', adminProtect, async (req, res) => {
   try {
-    const { workerId } = req.body;
+    const { workerId, startDate, dueDate } = req.body;
     const complaint = await Complaint.findByIdAndUpdate(
       req.params.id,
-      { workerId, status: 'Assigned' },
+      { workerId, status: 'Assigned', startDate, dueDate },
       { new: true }
     );
     if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
 
-    // Log activity
-    await new ActivityLog({
-      adminId: req.admin._id,
-      action: 'ASSIGN_COMPLAINT',
-      details: `Assigned complaint "${complaint.title}" to worker`,
-      targetType: 'Complaint',
-      targetId: complaint._id,
-      ipAddress: req.ip
-    }).save();
+    // Log activity safely for Admin or Supervisor
+    try {
+      await new ActivityLog({
+        adminId: req.admin ? req.admin._id : undefined,
+        actorRole: req.user ? req.user.role : 'admin',
+        actorName: req.admin ? req.admin.fullName : 'Supervisor',
+        action: 'ASSIGN_COMPLAINT',
+        details: `Assigned complaint "${complaint.title}" to field worker`,
+        targetType: 'Complaint',
+        targetId: complaint._id,
+        ipAddress: req.ip
+      }).save();
+    } catch (logErr) {
+      console.warn('ActivityLog skipped for assignment:', logErr.message);
+    }
 
     res.json(complaint);
   } catch (err) {
-    res.status(500).json({ message: 'Server error assigning complaint' });
+    res.status(500).json({ message: 'Server error assigning complaint: ' + err.message });
   }
 });
 
@@ -172,14 +197,20 @@ router.put('/complaints/:id/status', adminProtect, async (req, res) => {
     );
     if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
 
-    await new ActivityLog({
-      adminId: req.admin._id,
-      action: 'UPDATE_COMPLAINT_STATUS',
-      details: `Updated complaint "${complaint.title}" status to ${status}`,
-      targetType: 'Complaint',
-      targetId: complaint._id,
-      ipAddress: req.ip
-    }).save();
+    try {
+      await new ActivityLog({
+        adminId: req.admin ? req.admin._id : undefined,
+        actorRole: req.user ? req.user.role : 'admin',
+        actorName: req.admin ? req.admin.fullName : (req.user ? req.user.role : 'User'),
+        action: 'UPDATE_COMPLAINT_STATUS',
+        details: `Updated complaint "${complaint.title}" status to ${status}`,
+        targetType: 'Complaint',
+        targetId: complaint._id,
+        ipAddress: req.ip
+      }).save();
+    } catch (logErr) {
+      console.warn('ActivityLog skipped:', logErr.message);
+    }
 
     res.json(complaint);
   } catch (err) {
@@ -195,13 +226,17 @@ router.put('/complaints/:id/status', adminProtect, async (req, res) => {
 router.get('/citizens', adminProtect, async (req, res) => {
   try {
     const { search, page = 1, limit = 20 } = req.query;
-    const filter = { role: 'citizen' };
+    const filter = { $or: [{ role: 'citizen' }, { role: { $exists: false } }, { role: '' }, { role: null }] };
     
     if (search) {
-      filter.$or = [
-        { fullName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } }
+      filter.$and = [
+        {
+          $or: [
+            { fullName: { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } },
+            { city: { $regex: search, $options: 'i' } }
+          ]
+        }
       ];
     }
 
@@ -247,20 +282,159 @@ router.get('/citizens', adminProtect, async (req, res) => {
   }
 });
 
+// POST /api/admin/citizens — Create citizen account
+router.post('/citizens', adminProtect, async (req, res) => {
+  try {
+    const { fullName, email, password, phone, city, address } = req.body;
+
+    if (!fullName || !email || !password) {
+      return res.status(400).json({ message: 'Full name, email, and password are required' });
+    }
+
+    let existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const newUser = new User({
+      fullName,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      phone: phone || '',
+      city: city || '',
+      address: address || '',
+      role: 'citizen'
+    });
+
+    await newUser.save();
+
+    await new ActivityLog({
+      adminId: req.admin ? req.admin._id : undefined,
+      action: 'CREATE_CITIZEN',
+      details: `Created citizen account: ${fullName} (${email})`,
+      targetType: 'User',
+      targetId: newUser._id,
+      ipAddress: req.ip
+    }).save();
+
+    res.status(201).json({
+      message: 'Citizen account created successfully',
+      user: { id: newUser._id, email: newUser.email, name: newUser.fullName, role: newUser.role }
+    });
+  } catch (err) {
+    console.error('Create citizen error:', err);
+    res.status(500).json({ message: 'Server error creating citizen' });
+  }
+});
+
+// PUT /api/admin/citizens/:id/password — Update password for citizen
+router.put('/citizens/:id/password', adminProtect, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password || password.length < 4) {
+      return res.status(400).json({ message: 'Password must be at least 4 characters' });
+    }
+
+    const { id } = req.params;
+    let user = null;
+
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      user = await User.findById(id);
+    }
+    if (!user) {
+      user = await User.findOne({ _id: id });
+    }
+
+    if (!user) {
+      return res.status(404).json({ message: 'User account not found' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(password, salt);
+    await user.save();
+
+    try {
+      await new ActivityLog({
+        adminId: req.admin ? req.admin._id : undefined,
+        action: 'UPDATE_CITIZEN_PASSWORD',
+        details: `Changed password for citizen: ${user.fullName} (${user.email})`,
+        targetType: 'User',
+        targetId: user._id,
+        ipAddress: req.ip
+      }).save();
+    } catch (logErr) {
+      console.warn('ActivityLog error ignored:', logErr.message);
+    }
+
+    res.json({ message: `Password updated successfully for ${user.fullName}` });
+  } catch (err) {
+    console.error('Change citizen password error:', err);
+    res.status(500).json({ message: 'Server error updating citizen password: ' + err.message });
+  }
+});
+
+// DELETE /api/admin/citizens/:id — Delete citizen account
+router.delete('/citizens/:id', adminProtect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    let user = null;
+
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      user = await User.findById(id);
+    }
+
+    if (!user) {
+      return res.status(404).json({ message: 'User account not found' });
+    }
+
+    await User.findByIdAndDelete(user._id);
+
+    try {
+      await new ActivityLog({
+        adminId: req.admin ? req.admin._id : undefined,
+        action: 'DELETE_CITIZEN',
+        details: `Deleted citizen account: ${user.fullName} (${user.email})`,
+        targetType: 'User',
+        targetId: user._id,
+        ipAddress: req.ip
+      }).save();
+    } catch (logErr) {
+      console.warn('ActivityLog error ignored:', logErr.message);
+    }
+
+    res.json({ message: 'Citizen account deleted successfully' });
+  } catch (err) {
+    console.error('Delete citizen error:', err);
+    res.status(500).json({ message: 'Server error deleting citizen account: ' + err.message });
+  }
+});
+
 // ==========================================
 // PERSONNEL MANAGEMENT
 // ==========================================
 
+const Supervisor = require('../models/Supervisor');
+const FieldWorker = require('../models/FieldWorker');
+
 // GET /api/admin/personnel — All supervisors & workers
 router.get('/personnel', adminProtect, async (req, res) => {
   try {
-    const personnel = await User.find({ role: { $in: ['supervisor', 'worker'] } })
-      .select('-password')
-      .sort({ createdAt: -1 });
+    const supervisors = await Supervisor.find().select('-password').lean();
+    const workers = await FieldWorker.find().select('-password').lean();
+    const legacyPersonnel = await User.find({ role: { $in: ['supervisor', 'worker'] } }).select('-password').lean();
 
-    res.json(personnel);
+    const allPersonnel = [
+      ...supervisors.map(s => ({ ...s, role: 'supervisor' })),
+      ...workers.map(w => ({ ...w, role: 'worker' })),
+      ...legacyPersonnel
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    res.json(allPersonnel);
   } catch (err) {
-    res.status(500).json({ message: 'Server error fetching personnel' });
+    res.status(500).json({ message: 'Server error fetching personnel: ' + err.message });
   }
 });
 
@@ -268,21 +442,32 @@ router.get('/personnel', adminProtect, async (req, res) => {
 router.get('/personnel-monitoring', adminProtect, async (req, res) => {
   try {
     const { role, search } = req.query;
-    const filter = { role: { $in: ['supervisor', 'worker'] } };
+
+    let supervisors = await Supervisor.find().select('-password').lean();
+    let workers = await FieldWorker.find().select('-password').lean();
+    let legacy = await User.find({ role: { $in: ['supervisor', 'worker'] } }).select('-password').lean();
+
+    let combined = [
+      ...supervisors.map(s => ({ ...s, role: 'supervisor' })),
+      ...workers.map(w => ({ ...w, role: 'worker' })),
+      ...legacy
+    ];
+
     if (role && ['supervisor', 'worker'].includes(role)) {
-      filter.role = role;
+      combined = combined.filter(p => p.role === role);
     }
+
     if (search) {
-      filter.$or = [
-        { fullName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } }
-      ];
+      const q = search.toLowerCase();
+      combined = combined.filter(p => 
+        (p.fullName && p.fullName.toLowerCase().includes(q)) ||
+        (p.email && p.email.toLowerCase().includes(q)) ||
+        (p.city && p.city.toLowerCase().includes(q)) ||
+        (p.department && p.department.toLowerCase().includes(q))
+      );
     }
 
-    const personnel = await User.find(filter).select('-password').sort({ createdAt: -1 });
-
-    const enriched = await Promise.all(personnel.map(async (p) => {
+    const enriched = await Promise.all(combined.map(async (p) => {
       let activeTasks = 0;
       let resolvedTasks = 0;
 
@@ -290,7 +475,7 @@ router.get('/personnel-monitoring', adminProtect, async (req, res) => {
         activeTasks = await Complaint.countDocuments({ workerId: p._id, status: { $in: ['Assigned', 'Working'] } });
         resolvedTasks = await Complaint.countDocuments({ workerId: p._id, status: { $in: ['Resolved', 'Closed'] } });
       } else if (p.role === 'supervisor') {
-        const deptFilter = p.city ? { category: p.city } : {};
+        const deptFilter = p.city || p.department ? { category: p.city || p.department } : {};
         activeTasks = await Complaint.countDocuments({ ...deptFilter, status: { $in: ['New', 'Assigned', 'Working'] } });
         resolvedTasks = await Complaint.countDocuments({ ...deptFilter, status: { $in: ['Resolved', 'Closed'] } });
       }
@@ -299,10 +484,11 @@ router.get('/personnel-monitoring', adminProtect, async (req, res) => {
         _id: p._id,
         fullName: p.fullName,
         email: p.email,
+        personalEmail: p.personalEmail || '',
         phone: p.phone || 'N/A',
         role: p.role,
-        department: p.city || 'General',
-        profileImage: p.profileImage,
+        department: p.department || p.city || 'General',
+        profileImage: p.profileImage || '',
         activeTasks,
         resolvedTasks,
         joinedAt: p.createdAt
@@ -325,55 +511,151 @@ router.get('/personnel-monitoring', adminProtect, async (req, res) => {
     });
   } catch (err) {
     console.error('Personnel monitoring error:', err);
-    res.status(500).json({ message: 'Server error fetching personnel monitoring data' });
+    res.status(500).json({ message: 'Server error fetching personnel monitoring data: ' + err.message });
   }
 });
 
 // POST /api/admin/personnel — Create supervisor or worker account
 router.post('/personnel', adminProtect, async (req, res) => {
   try {
-    const { fullName, email, password, role, department } = req.body;
+    const { fullName, email, personalEmail, password, role, department } = req.body;
+    const cleanEmail = email.toLowerCase();
 
     if (!['supervisor', 'worker'].includes(role)) {
       return res.status(400).json({ message: 'Role must be supervisor or worker' });
     }
 
-    // Check if user already exists
-    let existingUser = await User.findOne({ email: email.toLowerCase() });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User with this email already exists' });
+    if (!fullName || !email || !password) {
+      return res.status(400).json({ message: 'Full name, login email, and password are required' });
+    }
+
+    // Check existing across all collections
+    const existingInUser = await User.findOne({ email: cleanEmail });
+    const existingInSup = await Supervisor.findOne({ email: cleanEmail });
+    const existingInWorker = await FieldWorker.findOne({ email: cleanEmail });
+
+    if (existingInUser || existingInSup || existingInWorker) {
+      return res.status(400).json({ message: 'Account with this login email already exists' });
     }
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = new User({
-      fullName,
-      email: email.toLowerCase(),
-      password: hashedPassword,
-      role,
-      city: department || ''
-    });
+    let newUser;
+    if (role === 'supervisor') {
+      newUser = new Supervisor({
+        fullName,
+        email: cleanEmail,
+        personalEmail: personalEmail ? personalEmail.toLowerCase() : '',
+        password: hashedPassword,
+        department: department || 'General',
+        city: department || ''
+      });
+    } else {
+      newUser = new FieldWorker({
+        fullName,
+        email: cleanEmail,
+        personalEmail: personalEmail ? personalEmail.toLowerCase() : '',
+        password: hashedPassword,
+        department: department || 'General',
+        city: department || ''
+      });
+    }
 
     await newUser.save();
 
-    // Log activity
-    await new ActivityLog({
-      adminId: req.admin._id,
-      action: 'CREATE_PERSONNEL',
-      details: `Created ${role} account: ${fullName} (${email})`,
-      targetType: 'User',
-      targetId: newUser._id,
-      ipAddress: req.ip
-    }).save();
+    // Send credentials email to personalEmail (or email if personalEmail not specified)
+    const targetEmail = (personalEmail && personalEmail.trim()) ? personalEmail.trim() : email.trim();
+    const { sendWelcomeCredentialsEmail } = require('../utils/emailSender');
+    
+    let emailSent = false;
+    try {
+      emailSent = await sendWelcomeCredentialsEmail({
+        toEmail: targetEmail,
+        name: fullName,
+        loginEmail: email,
+        password: password,
+        role: role,
+        department: department
+      });
+      console.log(`[POST /personnel] Credentials email dispatch result to ${targetEmail}: ${emailSent}`);
+    } catch (mailErr) {
+      console.error('[POST /personnel] Email dispatch error:', mailErr);
+    }
+
+    // Log activity safely for Admin or Supervisor
+    try {
+      await new ActivityLog({
+        adminId: req.admin ? req.admin._id : undefined,
+        actorRole: req.user ? req.user.role : 'admin',
+        actorName: req.admin ? req.admin.fullName : 'Supervisor',
+        action: 'CREATE_PERSONNEL',
+        details: `Created ${role} account (${role === 'supervisor' ? 'Supervisors' : 'Field Workers'}): ${fullName} (Login: ${email})`,
+        targetType: role === 'supervisor' ? 'Supervisor' : 'FieldWorker',
+        targetId: newUser._id,
+        ipAddress: req.ip
+      }).save();
+    } catch (logErr) {
+      console.warn('Activity log write skipped:', logErr.message);
+    }
 
     res.status(201).json({
-      message: `${role.charAt(0).toUpperCase() + role.slice(1)} account created successfully`,
-      user: { id: newUser._id, email: newUser.email, name: newUser.fullName, role: newUser.role }
+      message: `${role.toUpperCase()} account created successfully in dedicated ${role === 'supervisor' ? 'supervisors' : 'fieldworkers'} collection. Credentials email sent to ${targetEmail}!`,
+      user: {
+        id: newUser._id,
+        fullName: newUser.fullName,
+        email: newUser.email,
+        personalEmail: newUser.personalEmail,
+        role: newUser.role,
+        department: newUser.department
+      }
     });
   } catch (err) {
     console.error('Create personnel error:', err);
-    res.status(500).json({ message: 'Server error creating personnel' });
+    res.status(500).json({ message: 'Server error creating personnel account: ' + err.message });
+  }
+});
+
+// PUT /api/admin/personnel/:id/password — Change password for supervisor or worker
+router.put('/personnel/:id/password', adminProtect, async (req, res) => {
+  try {
+    const { password } = req.body;
+    const { id } = req.params;
+
+    if (!password || password.length < 4) {
+      return res.status(400).json({ message: 'Password must be at least 4 characters' });
+    }
+
+    let account = await Supervisor.findById(id) || await FieldWorker.findById(id) || await User.findById(id);
+    if (!account) {
+      return res.status(404).json({ message: 'Personnel account not found' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    account.password = await bcrypt.hash(password, salt);
+    await account.save();
+
+    res.json({ message: `Password updated successfully for ${account.fullName}` });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ message: 'Server error updating password: ' + err.message });
+  }
+});
+
+// DELETE /api/admin/personnel/:id — Delete supervisor or worker account
+router.delete('/personnel/:id', adminProtect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    let deleted = await Supervisor.findByIdAndDelete(id) || await FieldWorker.findByIdAndDelete(id) || await User.findByIdAndDelete(id);
+
+    if (!deleted) {
+      return res.status(404).json({ message: 'Personnel account not found' });
+    }
+
+    res.json({ message: `Personnel account deleted successfully` });
+  } catch (err) {
+    console.error('Delete personnel error:', err);
+    res.status(500).json({ message: 'Server error deleting user account: ' + err.message });
   }
 });
 
@@ -403,6 +685,67 @@ router.get('/departments', adminProtect, async (req, res) => {
   }
 });
 
+// POST /api/admin/departments — Create a new department/service
+router.post('/departments', adminProtect, async (req, res) => {
+  try {
+    const { name, description, icon, color, status } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: 'Service name is required' });
+    }
+
+    const existing = await Department.findOne({ name: name.trim() });
+    if (existing) {
+      return res.status(400).json({ message: 'A service with this name already exists' });
+    }
+
+    const newDept = new Department({
+      name: name.trim(),
+      description: description || '',
+      icon: icon || 'Server',
+      color: color || 'text-emerald-500',
+      status: status || 'Active'
+    });
+
+    await newDept.save();
+
+    await new ActivityLog({
+      adminId: req.admin ? req.admin._id : undefined,
+      action: 'CREATE_DEPARTMENT',
+      details: `Created new service department "${newDept.name}"`,
+      targetType: 'Department',
+      targetId: newDept._id,
+      ipAddress: req.ip
+    }).save();
+
+    res.status(201).json(newDept);
+  } catch (err) {
+    console.error('Create department error:', err);
+    res.status(500).json({ message: 'Server error creating service' });
+  }
+});
+
+// DELETE /api/admin/departments/:id — Delete department/service
+router.delete('/departments/:id', adminProtect, async (req, res) => {
+  try {
+    const dept = await Department.findByIdAndDelete(req.params.id);
+    if (!dept) return res.status(404).json({ message: 'Service department not found' });
+
+    await new ActivityLog({
+      adminId: req.admin ? req.admin._id : undefined,
+      action: 'DELETE_DEPARTMENT',
+      details: `Deleted service department "${dept.name}"`,
+      targetType: 'Department',
+      targetId: dept._id,
+      ipAddress: req.ip
+    }).save();
+
+    res.json({ message: `Service "${dept.name}" deleted successfully` });
+  } catch (err) {
+    console.error('Delete department error:', err);
+    res.status(500).json({ message: 'Server error deleting service' });
+  }
+});
+
 // PUT /api/admin/departments/:id — Update department status
 router.put('/departments/:id', adminProtect, async (req, res) => {
   try {
@@ -415,7 +758,7 @@ router.put('/departments/:id', adminProtect, async (req, res) => {
     if (!dept) return res.status(404).json({ message: 'Department not found' });
 
     await new ActivityLog({
-      adminId: req.admin._id,
+      adminId: req.admin ? req.admin._id : undefined,
       action: 'UPDATE_DEPARTMENT',
       details: `Updated department "${dept.name}" — status: ${dept.status}`,
       targetType: 'Department',
@@ -454,13 +797,13 @@ router.post('/announcements', adminProtect, async (req, res) => {
       title,
       message,
       type: type || 'Update',
-      createdBy: req.admin._id
+      createdBy: req.admin ? req.admin._id : (req.user ? req.user.id : undefined)
     });
 
     await announcement.save();
 
     await new ActivityLog({
-      adminId: req.admin._id,
+      adminId: req.admin ? req.admin._id : undefined,
       action: 'CREATE_ANNOUNCEMENT',
       details: `Created announcement: "${title}"`,
       targetType: 'Announcement',
@@ -569,32 +912,43 @@ router.put('/feedbacks/:id/status', adminProtect, async (req, res) => {
 });
 
 // ==========================================
-// ADMIN PROFILE
+// ACTIVITY LOGS / NOTIFICATIONS TELEMETRY
 // ==========================================
 
-// GET /api/admin/profile
-router.get('/profile', adminProtect, async (req, res) => {
+// GET /api/admin/activity-logs — Live notifications & activity logs feed
+router.get('/activity-logs', adminProtect, async (req, res) => {
   try {
-    res.json(req.admin);
-  } catch (err) {
-    res.status(500).json({ message: 'Server error fetching profile' });
-  }
-});
+    const { role } = req.query; // 'all' or 'supervisor' or 'worker'
+    const limit = parseInt(req.query.limit) || 30;
 
-// PUT /api/admin/profile
-router.put('/profile', adminProtect, async (req, res) => {
-  try {
-    const { fullName, phone, profileImage, department } = req.body;
-    const update = {};
-    if (fullName) update.fullName = fullName;
-    if (phone !== undefined) update.phone = phone;
-    if (profileImage !== undefined) update.profileImage = profileImage;
-    if (department) update.department = department;
+    let filter = {};
+    if (role === 'supervisor') {
+      filter = { actorRole: { $in: ['supervisor', 'worker'] } };
+    }
 
-    const admin = await Admin.findByIdAndUpdate(req.admin._id, update, { new: true }).select('-password');
-    res.json(admin);
+    const logs = await ActivityLog.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const formattedLogs = logs.map(log => ({
+      id: log._id,
+      action: log.action,
+      title: log.action.replace(/_/g, ' '),
+      details: log.details || 'System activity recorded',
+      message: log.details || 'System activity recorded',
+      actorRole: log.actorRole || 'admin',
+      actorName: log.actorName || 'System Admin',
+      targetType: log.targetType,
+      targetId: log.targetId,
+      time: getTimeAgo(log.createdAt),
+      createdAt: log.createdAt
+    }));
+
+    res.json({ logs: formattedLogs });
   } catch (err) {
-    res.status(500).json({ message: 'Server error updating profile' });
+    console.error('Activity logs fetch error:', err);
+    res.status(500).json({ message: 'Server error fetching activity telemetry: ' + err.message });
   }
 });
 

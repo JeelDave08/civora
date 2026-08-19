@@ -9,11 +9,25 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
   const { user, token } = useAuth();
 
-  if (!token || !user) {
+  const activeToken = token || localStorage.getItem('token');
+  let activeUser = user;
+  if (!activeUser) {
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser && storedUser !== 'undefined') {
+        activeUser = JSON.parse(storedUser);
+      }
+    } catch (e) {}
+  }
+
+  if (!activeToken || !activeUser) {
     return <Navigate to="/login" replace />;
   }
 
-  if (!allowedRoles.includes(user.role)) {
+  const userRole = (activeUser.role || '').toLowerCase();
+  const hasAccess = allowedRoles.some(r => r.toLowerCase() === userRole);
+
+  if (!hasAccess) {
     return <Navigate to="/403" replace />;
   }
 

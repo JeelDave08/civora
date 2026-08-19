@@ -21,8 +21,8 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 })
 
-// Default fallback location (Ahmedabad, India)
-const DEFAULT_LOCATION = { lat: 23.0225, lng: 72.5714 }
+// Default fallback location (Rajkot, Gujarat, India)
+const DEFAULT_LOCATION = { lat: 22.3039, lng: 70.8022 }
 
 // Custom marker icons
 const userIcon = new L.DivIcon({

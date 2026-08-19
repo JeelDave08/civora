@@ -1,3 +1,5 @@
+import React, { Component } from "react"
+import type { ErrorInfo, ReactNode } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MainLayout } from "./components/layout/MainLayout"
@@ -6,6 +8,37 @@ import { CitizenLayout } from "./components/layout/CitizenLayout"
 import { AuthProvider } from "./context/AuthContext"
 import { ProtectedRoute } from "./components/ProtectedRoute"
 import { Forbidden } from "./pages/Forbidden"
+
+interface ErrorProps { children?: ReactNode; }
+interface ErrorState { hasError: boolean; error: Error | null; }
+
+class ErrorBoundary extends Component<ErrorProps, ErrorState> {
+  public state: ErrorState = { hasError: false, error: null };
+  public static getDerivedStateFromError(error: Error): ErrorState { return { hasError: true, error }; }
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) { console.error("Uncaught rendering error:", error, errorInfo); }
+  public render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
+          <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 max-w-md w-full text-center space-y-4">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto text-2xl font-black">!</div>
+            <h2 className="text-xl font-bold text-slate-800">Something went wrong</h2>
+            <p className="text-xs text-slate-500 bg-slate-100 p-3 rounded-xl break-all">
+              {this.state.error?.message || "An unexpected error occurred while rendering page component."}
+            </p>
+            <button
+              onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+              className="w-full h-11 bg-[#4CC9B0] hover:bg-[#3bb59d] text-white font-bold rounded-xl text-sm transition-colors shadow-md"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 import { MapPage } from "./pages/MapPage"
 import { Landing } from "./pages/Landing"
@@ -27,6 +60,7 @@ import { WorkerNotifications } from "./pages/WorkerNotifications"
 
 import { AdminServices } from "./pages/AdminServices"
 import { AdminCitizens } from "./pages/AdminCitizens"
+import { AdminPersonnel } from "./pages/AdminPersonnel"
 import { AdminMonitoring } from "./pages/AdminMonitoring"
 
 import { ForgotPassword } from "./pages/ForgotPassword"
@@ -57,9 +91,10 @@ const queryClient = new QueryClient()
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
+      <ErrorBoundary>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
             {/* Public Routes */}
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
@@ -86,6 +121,7 @@ function App() {
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="services" element={<AdminServices />} />
                 <Route path="citizens" element={<AdminCitizens />} />
+                <Route path="personnel" element={<AdminPersonnel />} />
                 <Route path="map" element={<MapPage />} />
                 <Route path="monitoring" element={<AdminMonitoring />} />
                 <Route path="settings" element={<Settings />} />
@@ -143,7 +179,8 @@ function App() {
           </Routes>
         </BrowserRouter>
       </AuthProvider>
-    </QueryClientProvider>
+    </ErrorBoundary>
+  </QueryClientProvider>
   )
 }
 

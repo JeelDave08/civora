@@ -1,32 +1,93 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useParams, Link } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { ArrowLeft, MapPin, Calendar, Clock, UserCheck, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react"
+import { ArrowLeft, MapPin, Calendar, Clock, UserCheck, CheckCircle2, AlertCircle, RefreshCw, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
+import { useAuth } from "../context/AuthContext"
+
+const API_BASE = 'http://localhost:5000/api/admin';
 
 export function SupervisorComplaintDetail() {
   const { id } = useParams()
+  const { token } = useAuth()
   
   // Simulated flow state: 'review' -> 'assigned' -> 'worker_progress' -> 'verification' -> 'approved' -> 'closed'
   const [flowState, setFlowState] = useState<'review' | 'assigned' | 'worker_progress' | 'verification' | 'approved' | 'rework'>('review')
   
   const [assignment, setAssignment] = useState({ worker: "", startDate: "", dueDate: "" })
+  const [workers, setWorkers] = useState<any[]>([])
+  const [loadingWorkers, setLoadingWorkers] = useState(true)
 
-  const handleAssign = (e: React.FormEvent) => {
-    e.preventDefault()
-    if(assignment.worker && assignment.startDate && assignment.dueDate) {
-      setFlowState('assigned')
-      
-      // Simulate worker starting after a brief delay
-      setTimeout(() => setFlowState('worker_progress'), 2000)
-      
-      // Simulate worker completing after another delay
-      setTimeout(() => setFlowState('verification'), 6000)
+  useEffect(() => {
+    fetchFieldWorkers()
+  }, [])
+
+  const fetchFieldWorkers = async () => {
+    try {
+      setLoadingWorkers(true)
+      const res = await fetch(`${API_BASE}/personnel-monitoring?role=worker`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setWorkers(data.personnel || [])
+      }
+    } catch (e) {
+      console.error('Error loading workers:', e)
+    } finally {
+      setLoadingWorkers(false)
     }
   }
 
-  const handleApprove = () => {
-    setFlowState('approved')
+  const handleAssign = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!assignment.worker || !assignment.startDate || !assignment.dueDate) return;
+
+    try {
+      if (id && id.length === 24) {
+        const response = await fetch(`${API_BASE}/complaints/${id}/assign`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            workerId: assignment.worker,
+            startDate: assignment.startDate,
+            dueDate: assignment.dueDate
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.message || 'Failed to assign worker');
+        }
+      }
+
+      setFlowState('assigned')
+      setTimeout(() => setFlowState('worker_progress'), 2000)
+      setTimeout(() => setFlowState('verification'), 6000)
+    } catch (err: any) {
+      alert(err.message || 'Error assigning worker');
+    }
+  }
+
+  const handleApprove = async () => {
+    try {
+      if (id && id.length === 24) {
+        await fetch(`${API_BASE}/complaints/${id}/status`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ status: 'Resolved' })
+        });
+      }
+      setFlowState('approved')
+    } catch (err) {
+      console.error('Approve error:', err);
+    }
   }
 
   const handleRework = () => {
@@ -60,8 +121,8 @@ export function SupervisorComplaintDetail() {
           <Card className="rounded-[20px] border-slate-100 shadow-sm overflow-hidden">
             <div className="h-48 bg-slate-200 relative">
               {/* Placeholder Image */}
-              <div className="absolute inset-0 bg-slate-300 flex items-center justify-center text-slate-500">
-                 [Before Image / User Upload]
+              <div className="absolute inset-0 bg-slate-300 flex items-center justify-center text-slate-500 font-semibold text-sm">
+                 [Before Image / User Uploaded Site Evidence]
               </div>
             </div>
             <CardContent className="p-6">
@@ -87,23 +148,32 @@ export function SupervisorComplaintDetail() {
                     <form onSubmit={handleAssign} className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Select Worker</label>
-                        <select required className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none" onChange={(e) => setAssignment({...assignment, worker: e.target.value})}>
-                          <option value="">Choose...</option>
-                          <option value="Mike Ross">Mike Ross</option>
-                          <option value="Harvey Specter">Harvey Specter</option>
-                        </select>
+                        {loadingWorkers ? (
+                          <div className="flex items-center gap-2 text-slate-400 text-xs py-2">
+                            <Loader2 className="animate-spin text-[#4CC9B0]" size={14} /> Loading workers from database...
+                          </div>
+                        ) : (
+                          <select required className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none bg-white font-medium text-sm text-slate-800" onChange={(e) => setAssignment({...assignment, worker: e.target.value})}>
+                            <option value="">Choose Field Worker...</option>
+                            {workers.map((w: any) => (
+                              <option key={w._id} value={w._id}>
+                                {w.fullName} ({w.department || 'Field Force'})
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
-                          <input type="date" required className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none" onChange={(e) => setAssignment({...assignment, startDate: e.target.value})}/>
+                          <input type="date" required className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none text-sm" onChange={(e) => setAssignment({...assignment, startDate: e.target.value})}/>
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label>
-                          <input type="date" required className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none" onChange={(e) => setAssignment({...assignment, dueDate: e.target.value})}/>
+                          <input type="date" required className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none text-sm" onChange={(e) => setAssignment({...assignment, dueDate: e.target.value})}/>
                         </div>
                       </div>
-                      <button type="submit" className="w-full h-11 mt-2 rounded-xl bg-[#4CC9B0] text-white font-bold hover:bg-[#3bb59d] transition-colors">
+                      <button type="submit" className="w-full h-11 mt-2 rounded-xl bg-[#4CC9B0] text-white font-bold hover:bg-[#3bb59d] transition-colors shadow-sm">
                         Create Task & Notify Worker
                       </button>
                     </form>

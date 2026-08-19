@@ -23,20 +23,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User>(() => {
-    const storedUser = localStorage.getItem('user');
-    return storedUser ? JSON.parse(storedUser) : null;
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (!storedUser || storedUser === 'undefined') return null;
+      return JSON.parse(storedUser);
+    } catch (e) {
+      return null;
+    }
   });
   const [token, setToken] = useState<string | null>(() => {
     return localStorage.getItem('token');
   });
 
   useEffect(() => {
-    // Sync state if localStorage changes in other tabs
     const handleStorageChange = () => {
       const storedToken = localStorage.getItem('token');
       const storedUser = localStorage.getItem('user');
       setToken(storedToken);
-      setUser(storedUser ? JSON.parse(storedUser) : null);
+      try {
+        setUser(storedUser && storedUser !== 'undefined' ? JSON.parse(storedUser) : null);
+      } catch (e) {
+        setUser(null);
+      }
     };
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);

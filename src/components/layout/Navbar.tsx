@@ -4,7 +4,7 @@ import { useAuth } from "../../context/AuthContext"
 import { Link } from "react-router-dom"
 
 export function Navbar() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
 
   return (
     <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-border bg-white/70 px-6 backdrop-blur-xl lg:px-10">
@@ -29,13 +29,18 @@ export function Navbar() {
         </Button>
         <div className="flex items-center gap-3 pl-4 border-l border-border">
           <div className="text-right hidden sm:block">
-            <p className="text-sm font-semibold text-heading">Administrator</p>
-            <p className="text-xs text-muted-foreground">City Council</p>
+            <p className="text-sm font-semibold text-heading">{user?.name || "Civora User"}</p>
+            <p className="text-xs text-muted-foreground capitalize">
+              {(() => {
+                const r = (user?.role || '').toLowerCase();
+                return r === 'admin' ? 'Administrator' : r === 'supervisor' ? 'Supervisor' : r === 'worker' ? 'Field Worker' : 'Citizen';
+              })()}
+            </p>
           </div>
           <div className="h-10 w-10 overflow-hidden rounded-full border-2 border-primary/20 bg-muted">
             <img 
-              src="https://api.dicebear.com/7.x/notionists/svg?seed=Admin" 
-              alt="Admin" 
+              src={user?.profileImage || `https://api.dicebear.com/7.x/notionists/svg?seed=${user?.name || 'Admin'}`} 
+              alt={user?.name || "User"} 
               className="h-full w-full object-cover"
             />
           </div>
