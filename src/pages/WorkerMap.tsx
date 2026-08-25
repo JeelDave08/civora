@@ -58,13 +58,14 @@ function createTaskPin(priority: string) {
 function RecenterController({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap()
   useEffect(() => {
+    map.invalidateSize()
     map.setView([lat, lng], 14)
   }, [lat, lng, map])
   return null
 }
 
 export function WorkerMap() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const [userLocation, setUserLocation] = useState(DEFAULT_LOCATION)
   const [tasks, setTasks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -83,12 +84,19 @@ export function WorkerMap() {
   const fetchWorkerTasks = async () => {
     try {
       setLoading(true)
-      const res = await fetch("http://localhost:5000/api/worker/dashboard", {
+      const res = await fetch("http://localhost:5000/api/admin/complaints?limit=100", {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
         const data = await res.json()
-        setTasks(data.tasks || data.assignedComplaints || [])
+        const allComps = data.complaints || []
+        const myTasks = allComps.filter((c: any) => {
+          if (!c.workerId) return false;
+          const wId = typeof c.workerId === 'object' ? (c.workerId._id || c.workerId.id) : c.workerId;
+          const wEmail = typeof c.workerId === 'object' ? c.workerId.email : null;
+          return wId === user?.id || (wEmail && user?.email && wEmail.toLowerCase() === user.email.toLowerCase());
+        });
+        setTasks(myTasks)
       }
     } catch (err) {
       console.error("Error fetching worker tasks:", err)
@@ -109,7 +117,7 @@ export function WorkerMap() {
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="space-y-6 p-6 lg:p-10 max-w-7xl mx-auto font-sans h-full flex flex-col"
+      className="space-y-6 p-6 lg:p-10 max-w-7xl mx-auto font-sans"
     >
       <div className="flex items-center justify-between">
         <div>
@@ -124,7 +132,7 @@ export function WorkerMap() {
         </button>
       </div>
 
-      <div className="flex-1 min-h-[500px] relative rounded-[32px] overflow-hidden border-4 border-white shadow-[0_8px_30px_rgba(0,0,0,0.06)] bg-slate-100 flex flex-col z-0">
+      <div className="h-[600px] w-full relative rounded-[32px] overflow-hidden border-4 border-white shadow-[0_8px_30px_rgba(0,0,0,0.06)] bg-slate-100 flex flex-col z-0">
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
             <Loader2 size={32} className="animate-spin text-[#4CC9B0]" />
@@ -134,7 +142,8 @@ export function WorkerMap() {
           <MapContainer
             center={[userLocation.lat, userLocation.lng]}
             zoom={14}
-            style={{ height: "100%", width: "100%" }}
+            scrollWheelZoom={true}
+            style={{ height: "100%", width: "100%", minHeight: "500px", zIndex: 1 }}
             zoomControl={true}
           >
             <TileLayer
@@ -153,10 +162,22 @@ export function WorkerMap() {
             </Marker>
 
             {/* Assigned Task Markers */}
-            {tasks.map((task) => {
-              const lat = task.location?.lat || 23.0225 + (Math.random() - 0.5) * 0.04
-              const lng = task.location?.lng || 72.5714 + (Math.random() - 0.5) * 0.04
-              const address = task.location?.address || "Assigned Spot"
+            {tasks.map((task, idx) => {
+              const rawLoc = task.location;
+              let lat = 22.3039;
+              let lng = 70.8022;
+              let address = "Assigned Spot";
+
+              if (rawLoc && typeof rawLoc === 'object') {
+                if (typeof rawLoc.lat === 'number') lat = rawLoc.lat;
+                if (typeof rawLoc.lng === 'number') lng = rawLoc.lng;
+                if (rawLoc.address) address = rawLoc.address;
+              } else if (typeof rawLoc === 'string') {
+                address = rawLoc;
+                // Add minor offsets so multiple markers don't collapse onto the exact same spot
+                lat = 22.3039 + ((idx % 5) - 2) * 0.008;
+                lng = 70.8022 + (((idx + 2) % 5) - 2) * 0.008;
+              }
 
               return (
                 <Marker key={task._id} position={[lat, lng]} icon={createTaskPin(task.priority)}>

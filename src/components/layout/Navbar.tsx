@@ -23,10 +23,18 @@ export function Navbar() {
       </div>
 
       <div className="flex items-center gap-4">
-        <Button variant="outline" size="icon" className="relative rounded-full">
-          <Bell size={18} />
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive border border-white"></span>
-        </Button>
+        {(() => {
+          const r = (user?.role || '').toLowerCase();
+          const target = r === 'admin' ? '/admin/notifications' : r === 'supervisor' ? '/supervisor/notifications' : r === 'worker' ? '/worker/notifications' : '/citizen/notifications';
+          return (
+            <Link to={target} title="View Notifications">
+              <Button variant="outline" size="icon" className="relative rounded-full">
+                <Bell size={18} />
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive border border-white"></span>
+              </Button>
+            </Link>
+          );
+        })()}
         <div className="flex items-center gap-3 pl-4 border-l border-border">
           <div className="text-right hidden sm:block">
             <p className="text-sm font-semibold text-heading">{user?.name || "Civora User"}</p>

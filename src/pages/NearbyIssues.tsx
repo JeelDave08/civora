@@ -203,7 +203,7 @@ export function NearbyIssues() {
       })
   }, [token])
 
-  // Filter complaints within 5km radius
+  // Show all complaints with location data without any km radius filter
   const nearbyComplaints = useMemo(() => {
     return complaints
       .filter((c) => c.location?.lat && c.location?.lng)
@@ -211,7 +211,6 @@ export function NearbyIssues() {
         ...c,
         distance: getDistanceKm(userLocation.lat, userLocation.lng, c.location.lat!, c.location.lng!),
       }))
-      .filter((c) => c.distance <= RADIUS_KM)
       .sort((a, b) => a.distance - b.distance)
   }, [complaints, userLocation])
 
@@ -230,7 +229,7 @@ export function NearbyIssues() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-heading">Nearby Issues</h1>
-        <p className="text-muted-foreground mt-1">Discover and track civic issues reported in your local area.</p>
+        <p className="text-muted-foreground mt-1">Discover and track civic issues reported across your city and surrounding areas.</p>
       </div>
 
       {/* Stats Bar */}
@@ -242,7 +241,7 @@ export function NearbyIssues() {
             </div>
             <div>
               <p className="text-2xl font-bold text-heading">{stats.total}</p>
-              <p className="text-xs text-muted-foreground">Total Nearby</p>
+              <p className="text-xs text-muted-foreground">Total Issues</p>
             </div>
           </CardContent>
         </Card>
@@ -281,7 +280,7 @@ export function NearbyIssues() {
                 </CardTitle>
                 <CardDescription>
                   {isGeolocated
-                    ? `Showing ${nearbyComplaints.length} issues within ${RADIUS_KM}km radius`
+                    ? `Showing ${nearbyComplaints.length} reported issues on map`
                     : "Click on the map to set your location, or allow GPS access"}
                 </CardDescription>
               </div>
@@ -307,7 +306,7 @@ export function NearbyIssues() {
             ) : (
               <MapContainer
                 center={[userLocation.lat, userLocation.lng]}
-                zoom={14}
+                zoom={13}
                 className="h-full w-full"
                 style={{ height: "100%", width: "100%", zIndex: 1 }}
                 zoomControl={true}
@@ -319,19 +318,6 @@ export function NearbyIssues() {
                 />
                 <RecenterMap lat={userLocation.lat} lng={userLocation.lng} />
                 <ClickHandler onMapClick={handleMapClick} />
-
-                {/* 5km Radius Circle */}
-                <Circle
-                  center={[userLocation.lat, userLocation.lng]}
-                  radius={RADIUS_KM * 1000}
-                  pathOptions={{
-                    color: "#3b82f6",
-                    fillColor: "#3b82f6",
-                    fillOpacity: 0.06,
-                    weight: 2,
-                    dashArray: "8 4",
-                  }}
-                />
 
                 {/* User Location Marker */}
                 <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
@@ -458,11 +444,9 @@ export function NearbyIssues() {
             ) : filteredComplaints.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
                 <MapPin size={40} className="mb-3 opacity-30" />
-                <p className="text-sm font-medium">No issues found nearby</p>
+                <p className="text-sm font-medium">No issues found</p>
                 <p className="text-xs mt-1">
-                  {complaints.length > 0
-                    ? "No complaints with location data within 5km. Try raising a complaint with location detection enabled!"
-                    : "Be the first to report an issue in your area!"}
+                  Be the first to report an issue in your city or area!
                 </p>
               </div>
             ) : (

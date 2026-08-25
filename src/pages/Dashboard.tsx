@@ -31,6 +31,7 @@ export function Dashboard() {
   
   const [formData, setFormData] = useState({
     role: "supervisor",
+    wardNumber: "",
     fullName: "",
     email: "",
     password: "",
@@ -99,7 +100,8 @@ export function Dashboard() {
           email: formData.email,
           password: formData.password,
           role: formData.role,
-          department: formData.department
+          department: formData.department,
+          wardNumber: formData.wardNumber
         })
       });
 
@@ -109,6 +111,7 @@ export function Dashboard() {
         setShowSuccess(true)
         setFormData({
           role: "supervisor",
+          wardNumber: "",
           fullName: "",
           email: "",
           password: "",
@@ -256,15 +259,16 @@ export function Dashboard() {
             <form className="space-y-4" onSubmit={handleAssign}>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Role *</label>
-                  <select 
-                    value={formData.role}
-                    onChange={(e) => setFormData({...formData, role: e.target.value})}
-                    className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] bg-white text-sm font-medium"
-                  >
-                    <option value="supervisor">Supervisor</option>
-                    <option value="worker">Field Worker</option>
-                  </select>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Ward Number *</label>
+                  <input 
+                    type="text" 
+                    value={formData.wardNumber}
+                    onChange={(e) => setFormData({...formData, wardNumber: e.target.value})}
+                    placeholder="e.g. Ward No. 12" 
+                    required
+                    className="w-full h-11 px-4 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] text-sm" 
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Type ward number to assign supervisor ward-wise</p>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Department *</label>

@@ -1,0 +1,129 @@
+================================================================================
+                     CIVORA SMART CITY PLATFORM - SYSTEM FLOW
+================================================================================
+
+--------------------------------------------------------------------------------
+1. CITIZEN ROLE FLOW
+--------------------------------------------------------------------------------
+Step 1: Authentication & Onboarding
+  - Citizen registers with Full Name, Email, Phone Number, City, and Password.
+  - Logs into Citizen Portal using credentials.
+  - Option to save password with Google Manager / Remember Me.
+
+Step 2: Dashboard Overview & Quick Navigation
+  - Views personalized stats (Total Complaints Filed, Pending, Resolved, Rewards Points).
+  - Quick action buttons: Report Complaint, Track Complaint, Emergency Hotline, Nearby Issues, All Issued City Issues.
+  - Recent complaints table with live progress bar and status tags.
+
+Step 3: Raising a Complaint (4-Step Guided Wizard)
+  - Step 1 (Category & Priority): Selects civic issue category (Road, Garbage, Water, Electricity, Street Light, Drainage, Building, etc.) and priority level.
+  - Step 2 (Description): Types detailed complaint description.
+  - Step 3 (Location & Multi-Photo Evidence):
+      • Manual Location Entry: Real-time debounced geocoding auto-centers the map position.
+      • Live GPS Detection: Click "Detect GPS" button to locate current coordinates via Leaflet map.
+      • Multi-Photo Evidence: Upload or capture up to 3 images (Cloudinary hosted). Previews with removal controls.
+  - Step 4 (Review & Submit): Submits complaint. Returns a unique 6-character Complaint ID (e.g., #CMP-8492).
+
+Step 4: Tracking & Managing Complaints
+  - My Complaints: Filterable list by status (New, Assigned, Working, Resolved, Closed).
+  - Complaint Detail Page:
+      • View issue details, status timeline, assigned department, and supervisor/worker updates.
+      • Grid Gallery: Displays ALL uploaded images (1 to 3 images) with click-to-view zoom modal.
+      • Comments & Live Chat: Post updates or communicate with field agents.
+
+Step 5: Nearby Civic Issues Map
+  - Interactive map displaying all city complaints (no fixed kilometer restriction).
+  - Filter by active or resolved status. Real-time distance calculation relative to citizen position.
+
+Step 6: Gamification & Rewards Portal
+  - Earn points for verified complaint reports.
+  - Redeem points for city vouchers (Free Parking Pass, Transit Pass, City Event Tickets, Property Tax Rebate).
+  - View claimed voucher codes in "My Claimed Rewards".
+
+Step 7: Feedback & Profile Management
+  - Submit platform rating & feedback.
+  - Update user profile (Name, Phone, Address, Profile Avatar).
+
+
+--------------------------------------------------------------------------------
+2. ADMIN ROLE FLOW
+--------------------------------------------------------------------------------
+Step 1: Executive Portal Authentication
+  - Secure login requiring @admin.civora.com domain credentials (e.g., admin@admin.civora.com / Admin@123).
+  - Session security protected by JWT token authentication.
+
+Step 2: Executive Command Center (Dashboard)
+  - Real-time KPI Cards: Total Complaints, Active Supervisors, Field Workers, Registered Citizens, Resolution Rate %.
+  - Timeframe Filter: View stats for Last 7, 15, 30, or 60 days.
+  - Unassigned Civic Tickets Queue: Triage incoming complaint tickets awaiting supervisor/department allocation.
+
+Step 3: Quick Personnel Assignment (Ward-Wise Onboarding)
+  - Create and onboard Supervisors directly assigned by Ward Number (manual text entry e.g. "Ward No. 12").
+  - Onboard with Name, Portal Email, Personal Email, Password, Department, and Ward Number.
+
+Step 4: Department & City Service Management
+  - Manage municipal departments (Roads & Transport, Water Supply, Electricity, Waste Management, Public Safety, Parks & Rec).
+  - Add, edit, toggle active status, or assign department heads.
+
+Step 5: User Access Management (Authorized Personnel Directory)
+  - Filter directory by role (Supervisors vs Workers) or search by name/email/city.
+  - Reset user passwords securely.
+  - Delete/revoke employee accounts with automatic task unassignment fallback.
+
+Step 6: System Monitoring & Activity Audit Logs
+  - Track real-time audit logs of administrative actions (Login, Account Creation, Password Reset, Department Changes).
+  - City Citizen Directory: View, inspect, or manage registered citizens.
+
+
+--------------------------------------------------------------------------------
+3. SUPERVISOR ROLE FLOW
+--------------------------------------------------------------------------------
+Step 1: Supervisor Authentication & Ward Context
+  - Login with assigned supervisor portal email & password.
+  - Access dashboard tailored to assigned Department & Ward Number.
+
+Step 2: Supervisor Operational Dashboard
+  - View department complaint statistics (New, Assigned to Workers, In Progress, Resolved).
+  - Priority triage indicators (Emergency, High, Medium, Low).
+
+Step 3: Complaint Triage & Field Worker Task Assignment
+  - Open Complaint Queue.
+  - Inspect citizen complaint details, exact map location, and ALL uploaded evidence photos (1 to 3 images in gallery grid).
+  - Select Field Worker from department pool.
+  - Set schedule dates: Scheduled Start Date & Estimated Due Date.
+  - Assign task directly to Field Worker.
+
+Step 4: Task Progress Monitoring & Performance Tracking
+  - Track live field worker status (e.g. "⏱ Working Now" timer active).
+  - Review logged work duration (Minutes & Seconds tracked by worker).
+  - Receive field completion reports with worker-uploaded resolution evidence photos.
+  - Approve resolution to mark complaint as "Resolved" or request rework.
+
+Step 5: Team Management
+  - View department field workers, workload count, active tasks, and contact info.
+
+
+--------------------------------------------------------------------------------
+4. FIELD WORKER ROLE FLOW
+--------------------------------------------------------------------------------
+Step 1: Mobile Portal Authentication
+  - Login with field worker credentials.
+  - View daily task queue assigned by Supervisor.
+
+Step 2: Worker Task Dashboard & Queue
+  - Task List categorized by priority, due date, and current status (Assigned, In Progress, Pending Review).
+  - Direct navigation map link for assigned complaint locations.
+
+Step 3: Task Detail Execution & Real-Time Tracking
+  - View Citizen Reported Evidence: Interactive grid displaying ALL citizen-uploaded evidence photos (1 to 3 images).
+  - Read complaint description, location address, and supervisor remarks/due dates.
+  - Interactive Work Timer:
+      • Click "Start Work Timer" to initiate real-time timer tracking when arriving on location.
+      • Click "Stop Timer" to pause/complete work tracking. Logged time persists in database.
+
+Step 4: Task Completion & Evidence Submission
+  - Upload "Before & After" resolution proof photos.
+  - Add execution remarks/completion notes.
+  - Submit task for Supervisor approval (Status updates to "Pending Review" / "Resolved").
+
+================================================================================

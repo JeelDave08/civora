@@ -25,6 +25,7 @@ export function AdminPersonnel() {
     personalEmail: "",
     password: "",
     role: "supervisor",
+    wardNumber: "",
     department: "Roads & Transport"
   });
   const [newPassword, setNewPassword] = useState("");
@@ -91,7 +92,7 @@ export function AdminPersonnel() {
       const data = await res.json();
       if (res.ok) {
         setActionMessage({ type: 'success', text: data.message || `${createForm.role.toUpperCase()} account created successfully!` });
-        setCreateForm({ fullName: "", email: "", personalEmail: "", password: "", role: "supervisor", department: "Roads & Transport" });
+        setCreateForm({ fullName: "", email: "", personalEmail: "", password: "", role: "supervisor", wardNumber: "", department: "Roads & Transport" });
         setShowCreateModal(false);
         fetchPersonnel();
       } else {
@@ -383,15 +384,16 @@ export function AdminPersonnel() {
             </div>
             <form onSubmit={handleCreateUser} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Select Access Role</label>
-                <select
-                  value={createForm.role}
-                  onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
-                  className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] bg-white text-sm font-semibold text-slate-800"
-                >
-                  <option value="supervisor">Supervisor</option>
-                  <option value="worker">Field Worker</option>
-                </select>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Ward Number *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Ward No. 12"
+                  value={createForm.wardNumber}
+                  onChange={(e) => setCreateForm({ ...createForm, wardNumber: e.target.value })}
+                  className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] text-sm font-semibold text-slate-800"
+                />
+                <p className="text-[10px] text-slate-400 mt-1 font-medium">Type ward number to assign supervisor ward-wise</p>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>

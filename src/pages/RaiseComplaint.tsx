@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { useAuth } from "../context/AuthContext"
-import { MapPin, Camera, Video, Upload, CheckCircle, ArrowRight, ArrowLeft, Navigation, X, RefreshCw, Loader2, Search, Target } from "lucide-react"
+import { MapPin, Camera, Video, Upload, CheckCircle, ArrowRight, ArrowLeft, Navigation, X, RefreshCw, Loader2, Search, Target, Sparkles, AlertTriangle, Edit3, ShieldAlert } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Card, CardContent } from "@/components/ui/Card"
@@ -28,6 +28,16 @@ const DEFAULT_CENTER = { lat: 23.0225, lng: 72.5714 } // Ahmedabad City Center
 const categories = [
   "Road", "Garbage", "Water", "Electricity", "Street Light", "Drainage", "Building", "Other"
 ]
+
+export interface AiImageAnalysisResult {
+  detectedIssue: string
+  confidenceScore: number
+  suggestedCategory: string
+  suggestedPriority: string
+  suggestedDepartment: string
+  status: 'NOT_ANALYZED' | 'ANALYZING' | 'COMPLETED' | 'FAILED'
+  error?: string
+}
 
 // Custom interactive map picker marker icon
 const locationPinIcon = new L.DivIcon({
@@ -77,24 +87,132 @@ export function RaiseComplaint() {
   const [isGeocodingText, setIsGeocodingText] = useState(false)
   const [complaintId, setComplaintId] = useState("CIV-8492")
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const searchTimeoutRef = useRef<any>(null)
 
   // Camera state
   const [isCameraOpen, setIsCameraOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
 
+  // AI Analysis state per image URL
+  const [aiAnalysisMap, setAiAnalysisMap] = useState<Record<string, AiImageAnalysisResult>>({})
+  const [activeConfirmedAi, setActiveConfirmedAi] = useState<{
+    category: string
+    priority: string
+    department: string
+    suggestedSlaHours: number
+  } | null>(null)
+
   const [formData, setFormData] = useState({
     category: "",
     description: "",
     priority: "Medium",
+    department: "",
     location: "",
     lat: DEFAULT_CENTER.lat as number | null,
     lng: DEFAULT_CENTER.lng as number | null,
-    imageUrl: ""
+    images: [] as string[]
   })
+
+  // Trigger AI Image Analysis for a Cloudinary image URL
+  const handleAnalyzeImage = async (url: string) => {
+    // Return early if already analyzing
+    if (aiAnalysisMap[url]?.status === 'ANALYZING') return
+
+    setAiAnalysisMap(prev => ({
+      ...prev,
+      [url]: {
+        detectedIssue: '',
+        confidenceScore: 0,
+        suggestedCategory: '',
+        suggestedPriority: '',
+        suggestedDepartment: '',
+        status: 'ANALYZING'
+      }
+    }))
+
+    try {
+      const res = await fetch("http://localhost:5000/api/citizen/complaints/analyze-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ imageUrl: url })
+      })
+
+      const data = await res.json()
+
+      if (res.ok && data.success) {
+        setAiAnalysisMap(prev => ({
+          ...prev,
+          [url]: {
+            detectedIssue: data.analysis.detectedIssue,
+            confidenceScore: data.analysis.confidenceScore,
+            suggestedCategory: data.analysis.suggestedCategory,
+            suggestedPriority: data.analysis.suggestedPriority,
+            suggestedDepartment: data.analysis.suggestedDepartment,
+            status: 'COMPLETED'
+          }
+        }))
+      } else {
+        setAiAnalysisMap(prev => ({
+          ...prev,
+          [url]: {
+            detectedIssue: 'Unknown Civic Issue',
+            confidenceScore: 0,
+            suggestedCategory: 'Other',
+            suggestedPriority: 'Medium',
+            suggestedDepartment: 'General Civic Admin',
+            status: 'FAILED',
+            error: data.message || 'AI analysis temporarily unavailable'
+          }
+        }))
+      }
+    } catch (err: any) {
+      setAiAnalysisMap(prev => ({
+        ...prev,
+        [url]: {
+          detectedIssue: 'Unknown Civic Issue',
+          confidenceScore: 0,
+          suggestedCategory: 'Other',
+          suggestedPriority: 'Medium',
+          suggestedDepartment: 'General Civic Admin',
+          status: 'FAILED',
+          error: 'Network error analyzing photo'
+        }
+      }))
+    }
+  }
+
+  // Apply AI Suggestion to Form State
+  const handleApplyAiSuggestion = (url: string) => {
+    const analysis = aiAnalysisMap[url]
+    if (!analysis || analysis.status !== 'COMPLETED') return
+
+    setFormData(prev => ({
+      ...prev,
+      category: analysis.suggestedCategory,
+      priority: analysis.suggestedPriority,
+      department: analysis.suggestedDepartment
+    }))
+
+    setActiveConfirmedAi({
+      category: analysis.suggestedCategory,
+      priority: analysis.suggestedPriority,
+      department: analysis.suggestedDepartment,
+      suggestedSlaHours: analysis.suggestedPriority === 'Critical' ? 12 : analysis.suggestedPriority === 'High' ? 24 : 48
+    })
+
+    alert(`AI Suggestions applied! Category set to "${analysis.suggestedCategory}" & Priority set to "${analysis.suggestedPriority}".`)
+  }
 
   // Start Webcam Stream
   const openCamera = async () => {
+    if (formData.images.length >= 3) {
+      alert("You can upload a maximum of 3 images per complaint.")
+      return
+    }
     try {
       setIsCameraOpen(true)
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -137,7 +255,7 @@ export function RaiseComplaint() {
       stopCamera()
       setIsUploading(true)
 
-      const file = new File([blob], "live_camera_capture.jpg", { type: "image/jpeg" })
+      const file = new File([blob], `live_camera_capture_${Date.now()}.jpg`, { type: "image/jpeg" })
       const data = new FormData()
       data.append("file", file)
       data.append("upload_preset", "civora")
@@ -149,7 +267,10 @@ export function RaiseComplaint() {
           body: data
         })
         const uploadedImage = await res.json()
-        setFormData(prev => ({ ...prev, imageUrl: uploadedImage.secure_url }))
+        if (uploadedImage.secure_url) {
+          setFormData(prev => ({ ...prev, images: [...prev.images, uploadedImage.secure_url].slice(0, 3) }))
+          handleAnalyzeImage(uploadedImage.secure_url)
+        }
       } catch (err) {
         console.error("Error uploading camera capture:", err)
       } finally {
@@ -159,27 +280,51 @@ export function RaiseComplaint() {
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
 
+    const remainingQuota = 3 - formData.images.length
+    if (remainingQuota <= 0) {
+      alert("You can upload a maximum of 3 images.")
+      return
+    }
+
+    const filesToUpload = files.slice(0, remainingQuota)
     setIsUploading(true)
-    const data = new FormData()
-    data.append("file", file)
-    data.append("upload_preset", "civora")
-    data.append("cloud_name", "racerjru")
 
     try {
-      const res = await fetch("https://api.cloudinary.com/v1_1/racerjru/image/upload", {
-        method: "POST",
-        body: data
-      })
-      const uploadedImage = await res.json()
-      setFormData(prev => ({ ...prev, imageUrl: uploadedImage.secure_url }))
+      const uploadedUrls: string[] = []
+      for (const file of filesToUpload) {
+        const data = new FormData()
+        data.append("file", file)
+        data.append("upload_preset", "civora")
+        data.append("cloud_name", "racerjru")
+
+        const res = await fetch("https://api.cloudinary.com/v1_1/racerjru/image/upload", {
+          method: "POST",
+          body: data
+        })
+        const uploadedImage = await res.json()
+        if (uploadedImage.secure_url) {
+          uploadedUrls.push(uploadedImage.secure_url)
+        }
+      }
+      setFormData(prev => ({ ...prev, images: [...prev.images, ...uploadedUrls].slice(0, 3) }))
+      // Trigger AI analysis automatically for each newly uploaded image
+      uploadedUrls.forEach(url => handleAnalyzeImage(url))
     } catch (err) {
       console.error("Error uploading to Cloudinary:", err)
     } finally {
       setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
     }
+  }
+
+  const removeImage = (indexToRemove: number) => {
+    setFormData(prev => ({
+      ...prev,
+      images: prev.images.filter((_, idx) => idx !== indexToRemove)
+    }))
   }
 
   // Reverse Geocode (lat/lng -> address string)
@@ -211,31 +356,42 @@ export function RaiseComplaint() {
     }
   }
 
-  // Forward Geocode (Search address -> lat/lng)
-  const handleAddressSearch = async () => {
-    if (!formData.location.trim()) return
+  // Forward Geocode (Search text address -> lat/lng & redirect map position)
+  const handleAddressSearch = async (customQuery?: string, keepUserText = false) => {
+    const query = (customQuery !== undefined ? customQuery : formData.location).trim()
+    if (!query) return
     setIsGeocodingText(true)
     try {
       const apiKey = import.meta.env.VITE_GEOCODE_API_KEY || "pk.0c9741909440306217e5f3b924862636"
-      const response = await fetch(`https://us1.locationiq.com/v1/search?key=${apiKey}&q=${encodeURIComponent(formData.location)}&format=json&limit=1`)
+      const response = await fetch(`https://us1.locationiq.com/v1/search?key=${apiKey}&q=${encodeURIComponent(query)}&format=json&limit=1`)
       if (response.ok) {
         const data = await response.json()
         if (data && data.length > 0) {
           const lat = parseFloat(data[0].lat)
           const lng = parseFloat(data[0].lon)
-          setFormData(prev => ({ ...prev, lat, lng, location: data[0].display_name }))
+          setFormData(prev => ({
+            ...prev,
+            lat,
+            lng,
+            location: keepUserText ? prev.location : (data[0].display_name || query)
+          }))
           setIsGeocodingText(false)
           return
         }
       }
       // Fallback search via Nominatim
-      const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formData.location)}&limit=1`)
+      const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`)
       if (nomRes.ok) {
         const nomData = await nomRes.json()
         if (nomData && nomData.length > 0) {
           const lat = parseFloat(nomData[0].lat)
           const lng = parseFloat(nomData[0].lon)
-          setFormData(prev => ({ ...prev, lat, lng, location: nomData[0].display_name }))
+          setFormData(prev => ({
+            ...prev,
+            lat,
+            lng,
+            location: keepUserText ? prev.location : (nomData[0].display_name || query)
+          }))
         }
       }
     } catch (err) {
@@ -262,7 +418,7 @@ export function RaiseComplaint() {
       },
       (error) => {
         console.error("Error detecting location:", error)
-        alert("Could not detect your exact location automatically. You can click on the map to pinpoint your location!")
+        alert("Could not detect your exact location automatically. You can click on the map or type your city/area!")
         setIsDetectingLocation(false)
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -298,10 +454,25 @@ export function RaiseComplaint() {
           description: formData.description,
           category: formData.category,
           priority: formData.priority,
+          department: formData.department || undefined,
           location: formData.location,
           lat: formData.lat,
           lng: formData.lng,
-          imageUrl: formData.imageUrl
+          imageUrl: formData.images[0] || "",
+          images: formData.images,
+          aiAnalysisStatus: activeConfirmedAi ? 'COMPLETED' : 'NOT_ANALYZED',
+          suggestedSlaHours: activeConfirmedAi ? activeConfirmedAi.suggestedSlaHours : null,
+          aiAnalysis: activeConfirmedAi ? {
+            category: activeConfirmedAi.category,
+            priority: activeConfirmedAi.priority,
+            department: activeConfirmedAi.department,
+            suggestedSlaHours: activeConfirmedAi.suggestedSlaHours,
+            confirmedByCitizen: true,
+            confirmedAt: new Date()
+          } : undefined,
+          aiProvider: 'OpenAI',
+          aiModel: 'gpt-4o-mini',
+          aiAnalysisVersion: '1.0'
         })
       })
       const data = await res.json()
@@ -429,21 +600,32 @@ export function RaiseComplaint() {
                         <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
                         <Input 
                           value={formData.location}
-                          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddressSearch())}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFormData(prev => ({ ...prev, location: val }));
+                            
+                            // Auto-detect and relocate on map dynamically as user types (debounced)
+                            if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+                            if (val.trim().length >= 3) {
+                              searchTimeoutRef.current = setTimeout(() => {
+                                handleAddressSearch(val, true);
+                              }, 600);
+                            }
+                          }}
+                          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddressSearch(formData.location, false))}
                           className="pl-10 pr-24" 
-                          placeholder="Enter street, area, or landmark..." 
+                          placeholder="Type address, landmark, or city (e.g. Rajkot)..." 
                         />
                         <Button 
                           type="button"
-                          onClick={handleAddressSearch}
+                          onClick={() => handleAddressSearch(formData.location, false)}
                           disabled={isGeocodingText || !formData.location.trim()}
                           size="sm"
                           variant="ghost"
                           className="absolute right-1 top-1 h-8 text-xs px-2 gap-1 text-primary"
                         >
                           {isGeocodingText ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                          Find
+                          Find Location
                         </Button>
                       </div>
                       <Button 
@@ -467,7 +649,7 @@ export function RaiseComplaint() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
-                          <Target size={13} className="text-rose-500" /> Click on the map below to pinpoint exact location
+                          <Target size={13} className="text-rose-500" /> Map auto-centers on typed address or GPS. Click map to fine-tune.
                         </span>
                         {formData.lat && formData.lng && (
                           <span className="font-mono text-[11px] bg-muted px-2 py-0.5 rounded">
@@ -505,9 +687,163 @@ export function RaiseComplaint() {
                     </div>
                   </div>
 
-                  {/* Dual Photo Options: Live Camera OR File Upload */}
+                  {/* Multi-Photo Options: Live Camera OR Multiple File Upload */}
                   <div className="space-y-3">
-                    <label className="text-sm font-medium text-heading">Add Complaint Image (Live Camera or Upload)</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-heading">Add Complaint Images ({formData.images.length}/3 photos)</label>
+                      <span className="text-xs text-muted-foreground">Upload up to 3 photos as evidence</span>
+                    </div>
+
+                    {/* Image Preview Grid with AI Analysis per photo */}
+                    {formData.images.length > 0 && (
+                      <div className="space-y-4 mb-4">
+                        {formData.images.map((url, idx) => {
+                          const aiState = aiAnalysisMap[url]
+                          const confidencePct = aiState ? Math.round(aiState.confidenceScore * 100) : 0
+                          let confidenceBadgeColor = "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
+                          if (confidencePct < 70) {
+                            confidenceBadgeColor = "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                          }
+
+                          return (
+                            <div key={idx} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                              <div className="flex flex-col sm:flex-row items-start gap-4">
+                                <div className="relative rounded-lg overflow-hidden border border-border w-28 h-28 shrink-0 bg-black/5">
+                                  <img src={url} alt={`Evidence ${idx + 1}`} className="w-full h-full object-cover" />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeImage(idx)}
+                                    className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow"
+                                    title="Remove photo"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                  <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-mono">
+                                    Photo #{idx + 1}
+                                  </span>
+                                </div>
+
+                                <div className="flex-1 w-full space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <h4 className="text-xs font-semibold text-heading flex items-center gap-1.5">
+                                      <Sparkles size={14} className="text-primary animate-pulse" />
+                                      AI Photo Analysis
+                                    </h4>
+
+                                    {!aiState || aiState.status === 'NOT_ANALYZED' ? (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => handleAnalyzeImage(url)}
+                                        className="h-8 text-xs bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 gap-1.5"
+                                      >
+                                        <Sparkles size={12} /> 🤖 Analyze Photo
+                                      </Button>
+                                    ) : null}
+                                  </div>
+
+                                  {/* AI Loading State */}
+                                  {aiState?.status === 'ANALYZING' && (
+                                    <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 flex items-center gap-3 text-xs text-primary font-medium">
+                                      <Loader2 size={16} className="animate-spin text-primary" />
+                                      <span>🤖 Analyzing photo issue with AI... Please wait.</span>
+                                    </div>
+                                  )}
+
+                                  {/* AI Completed State */}
+                                  {aiState?.status === 'COMPLETED' && (
+                                    <div className="p-3.5 rounded-xl bg-gradient-to-br from-primary/5 via-background to-secondary/5 border border-primary/20 space-y-2 text-xs">
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">Detected Issue</span>
+                                          <span className="font-bold text-heading">{aiState.detectedIssue}</span>
+                                        </div>
+                                        <div>
+                                          <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">AI Signal Confidence</span>
+                                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${confidenceBadgeColor}`}>
+                                            {confidencePct}% ({confidencePct >= 90 ? 'High' : confidencePct >= 70 ? 'Moderate' : 'Low'})
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">Suggested Category</span>
+                                          <span className="font-medium text-heading">{aiState.suggestedCategory}</span>
+                                        </div>
+                                        <div>
+                                          <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">Suggested Priority</span>
+                                          <span className="font-medium text-heading">{aiState.suggestedPriority}</span>
+                                        </div>
+                                      </div>
+
+                                      {confidencePct < 70 && (
+                                        <div className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-1 font-medium">
+                                          <AlertTriangle size={12} />
+                                          ⚠️ AI is not confident about this image. Please verify manually.
+                                        </div>
+                                      )}
+
+                                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          onClick={() => handleApplyAiSuggestion(url)}
+                                          className="h-7 text-xs bg-emerald-600 text-white hover:bg-emerald-700 gap-1 px-2.5"
+                                        >
+                                          <CheckCircle size={12} /> ✅ Use AI Suggestion
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => setStep(1)}
+                                          className="h-7 text-xs gap-1 px-2 text-muted-foreground"
+                                        >
+                                          <Edit3 size={12} /> ✏️ Edit Manually
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => {
+                                            setAiAnalysisMap(prev => ({
+                                              ...prev,
+                                              [url]: { ...prev[url], status: 'NOT_ANALYZED' }
+                                            }))
+                                          }}
+                                          className="h-7 text-xs text-muted-foreground hover:text-foreground px-2"
+                                        >
+                                          Ignore
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* AI Failed State */}
+                                  {aiState?.status === 'FAILED' && (
+                                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
+                                      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-medium">
+                                        <AlertTriangle size={14} />
+                                        <span>⚠️ AI analysis is temporarily unavailable. You can continue manually.</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => handleAnalyzeImage(url)}
+                                          className="h-7 text-[11px] gap-1 px-2 border-amber-500/30 text-amber-700 dark:text-amber-300"
+                                        >
+                                          <RefreshCw size={11} /> Try Again
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
 
                     {isCameraOpen ? (
                       <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex flex-col items-center justify-center">
@@ -521,33 +857,24 @@ export function RaiseComplaint() {
                           </Button>
                         </div>
                       </div>
-                    ) : formData.imageUrl ? (
-                      <div className="border border-border rounded-xl p-4 text-center bg-card flex flex-col items-center">
-                        <img src={formData.imageUrl} alt="Complaint preview" className="h-44 object-cover rounded-lg mb-3 shadow" />
-                        <div className="flex gap-3">
-                          <Button size="sm" variant="outline" onClick={() => setFormData({ ...formData, imageUrl: "" })}>
-                            Remove & Retake
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
+                    ) : formData.images.length < 3 && (
                       <div className="grid sm:grid-cols-2 gap-4">
                         {/* Live Camera Button */}
                         <div 
                           onClick={openCamera}
-                          className="border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 rounded-xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
+                          className="border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 rounded-xl p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
                         >
-                          <div className="h-12 w-12 rounded-full bg-primary/20 text-primary flex items-center justify-center">
-                            <Camera size={24} />
+                          <div className="h-10 w-10 rounded-full bg-primary/20 text-primary flex items-center justify-center">
+                            <Camera size={20} />
                           </div>
-                          <span className="font-semibold text-sm text-heading">Click Live Photo</span>
-                          <span className="text-xs text-muted-foreground">Use webcam or mobile camera</span>
+                          <span className="font-semibold text-xs text-heading">Click Live Photo</span>
+                          <span className="text-[11px] text-muted-foreground">Webcam or mobile camera</span>
                         </div>
 
                         {/* File Upload Option */}
                         <div 
                           onClick={() => fileInputRef.current?.click()}
-                          className="border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/50 rounded-xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
+                          className="border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/50 rounded-xl p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
                         >
                           <input 
                             type="file" 
@@ -555,19 +882,17 @@ export function RaiseComplaint() {
                             onChange={handleFileUpload} 
                             className="hidden" 
                             accept="image/*"
+                            multiple
                           />
-                          <div className="h-12 w-12 rounded-full bg-secondary/10 text-secondary flex items-center justify-center">
-                            <Upload size={24} />
+                          <div className="h-10 w-10 rounded-full bg-secondary/10 text-secondary flex items-center justify-center">
+                            <Upload size={20} />
                           </div>
-                          <span className="font-semibold text-sm text-heading">Upload Image File</span>
-                          <span className="text-xs text-muted-foreground">PNG, JPG up to 10MB</span>
                         </div>
                       </div>
                     )}
-
                     {isUploading && (
                       <div className="flex items-center gap-2 text-xs text-primary font-medium justify-center pt-2">
-                        <Loader2 size={14} className="animate-spin" /> Uploading image...
+                        <Loader2 size={14} className="animate-spin" /> Uploading images...
                       </div>
                     )}
                   </div>

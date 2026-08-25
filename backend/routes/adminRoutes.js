@@ -186,13 +186,30 @@ router.put('/complaints/:id/assign', adminProtect, async (req, res) => {
   }
 });
 
-// PUT /api/admin/complaints/:id/status — Update complaint status
+// PUT /api/admin/complaints/:id/status — Update complaint status & progress details & timer tracking
 router.put('/complaints/:id/status', adminProtect, async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, remarks, beforeImage, afterImage, isTimerRunning, timeSpentSeconds, actionType } = req.body;
+    const updateData = {};
+    if (status) updateData.status = status;
+    if (remarks !== undefined) updateData.remarks = remarks;
+    if (beforeImage !== undefined) updateData.beforeImage = beforeImage;
+    if (afterImage !== undefined) updateData.afterImage = afterImage;
+    if (typeof isTimerRunning === 'boolean') updateData.isTimerRunning = isTimerRunning;
+    if (typeof timeSpentSeconds === 'number') updateData.timeSpentSeconds = timeSpentSeconds;
+
+    if (actionType === 'START_WORK') {
+      updateData.workStartedAt = new Date();
+      updateData.isTimerRunning = true;
+      updateData.status = 'Working';
+    } else if (actionType === 'STOP_WORK') {
+      updateData.workEndedAt = new Date();
+      updateData.isTimerRunning = false;
+    }
+
     const complaint = await Complaint.findByIdAndUpdate(
       req.params.id,
-      { status },
+      updateData,
       { new: true }
     );
     if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
@@ -203,7 +220,7 @@ router.put('/complaints/:id/status', adminProtect, async (req, res) => {
         actorRole: req.user ? req.user.role : 'admin',
         actorName: req.admin ? req.admin.fullName : (req.user ? req.user.role : 'User'),
         action: 'UPDATE_COMPLAINT_STATUS',
-        details: `Updated complaint "${complaint.title}" status to ${status}`,
+        details: `Updated complaint "${complaint.title}" status to ${status || complaint.status}`,
         targetType: 'Complaint',
         targetId: complaint._id,
         ipAddress: req.ip
@@ -471,9 +488,15 @@ router.get('/personnel-monitoring', adminProtect, async (req, res) => {
       let activeTasks = 0;
       let resolvedTasks = 0;
 
+      let totalTimeSpentSeconds = 0;
+      let currentlyWorking = false;
+
       if (p.role === 'worker') {
         activeTasks = await Complaint.countDocuments({ workerId: p._id, status: { $in: ['Assigned', 'Working'] } });
         resolvedTasks = await Complaint.countDocuments({ workerId: p._id, status: { $in: ['Resolved', 'Closed'] } });
+        const comps = await Complaint.find({ workerId: p._id }).select('timeSpentSeconds isTimerRunning');
+        totalTimeSpentSeconds = comps.reduce((acc, c) => acc + (c.timeSpentSeconds || 0), 0);
+        currentlyWorking = comps.some(c => c.isTimerRunning);
       } else if (p.role === 'supervisor') {
         const deptFilter = p.city || p.department ? { category: p.city || p.department } : {};
         activeTasks = await Complaint.countDocuments({ ...deptFilter, status: { $in: ['New', 'Assigned', 'Working'] } });
@@ -491,6 +514,8 @@ router.get('/personnel-monitoring', adminProtect, async (req, res) => {
         profileImage: p.profileImage || '',
         activeTasks,
         resolvedTasks,
+        totalTimeSpentSeconds,
+        currentlyWorking,
         joinedAt: p.createdAt
       };
     }));

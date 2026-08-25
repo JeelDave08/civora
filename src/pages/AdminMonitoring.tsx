@@ -158,12 +158,14 @@ export function AdminMonitoring() {
                     <th className="py-4 px-6">Department / Area</th>
                     <th className="py-4 px-6">Active Tasks</th>
                     <th className="py-4 px-6">Resolved Tasks</th>
+                    <th className="py-4 px-6">Time Logged</th>
                     <th className="py-4 px-6">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {filteredPersonnel.map((person) => {
                     const isSupervisor = person.role === 'supervisor';
+                    const timeMins = Math.floor((person.totalTimeSpentSeconds || 0) / 60);
                     return (
                       <tr key={person._id} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-4 px-6">
@@ -211,9 +213,24 @@ export function AdminMonitoring() {
                           </div>
                         </td>
                         <td className="py-4 px-6">
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active On Duty
-                          </span>
+                          {person.role === 'worker' ? (
+                            <span className="font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
+                              ⏱ {timeMins} mins
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-6">
+                          {person.currentlyWorking ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Working Now
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">
+                              On Duty
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );

@@ -60,6 +60,9 @@ export function SupervisorComplaints() {
 
   const handleAssignWorker = async (complaintId: string) => {
     const workerId = selectedWorkerMap[complaintId];
+    const startDate = selectedWorkerMap[`${complaintId}_start`];
+    const dueDate = selectedWorkerMap[`${complaintId}_due`];
+
     if (!workerId) {
       showToast('error', 'Please select a field worker first');
       return;
@@ -73,11 +76,11 @@ export function SupervisorComplaints() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ workerId })
+        body: JSON.stringify({ workerId, startDate, dueDate })
       });
 
       if (!response.ok) throw new Error('Failed to assign task');
-      showToast('success', 'Task successfully assigned to field worker!');
+      showToast('success', 'Task successfully assigned to field worker with schedule dates!');
       fetchData();
     } catch (err: any) {
       showToast('error', err.message || 'Error assigning task');
@@ -171,9 +174,9 @@ export function SupervisorComplaints() {
                   </div>
                   
                   <div className="flex items-center gap-3">
-                    {/* Worker Selector or Assigned badge */}
+                    {/* Worker Selector & Date Picker */}
                     {!c.workerId ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <select
                           value={selectedWorkerMap[c._id] || ''}
                           onChange={(e) => setSelectedWorkerMap({ ...selectedWorkerMap, [c._id]: e.target.value })}
@@ -184,19 +187,48 @@ export function SupervisorComplaints() {
                             <option key={w._id} value={w._id}>{w.fullName} ({w.city || 'Field'})</option>
                           ))}
                         </select>
+                        <input
+                          type="date"
+                          title="Start Date"
+                          onChange={(e) => setSelectedWorkerMap(prev => ({ ...prev, [`${c._id}_start`]: e.target.value }))}
+                          className="h-9 px-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:border-[#4CC9B0]"
+                        />
+                        <input
+                          type="date"
+                          title="Due Date"
+                          onChange={(e) => setSelectedWorkerMap(prev => ({ ...prev, [`${c._id}_due`]: e.target.value }))}
+                          className="h-9 px-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:border-[#4CC9B0]"
+                        />
                         <button
                           onClick={() => handleAssignWorker(c._id)}
                           disabled={assigningId === c._id}
                           className="h-9 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
                         >
-                          Assign
+                          Assign Task
                         </button>
                       </div>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-200 text-slate-800">
-                        <UserCheck size={14} className="text-[#4CC9B0]" />
-                        {c.workerId?.fullName || 'Assigned'}
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-slate-200 text-slate-800">
+                          <UserCheck size={14} className="text-[#4CC9B0]" />
+                          {c.workerId?.fullName || 'Assigned Worker'}
+                        </span>
+                        {c.isTimerRunning && (
+                          <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full animate-pulse border border-emerald-200">
+                            ⏱ Working Now
+                          </span>
+                        )}
+                        {typeof c.timeSpentSeconds === 'number' && c.timeSpentSeconds > 0 && (
+                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                            Logged: {Math.floor(c.timeSpentSeconds / 60)}m {c.timeSpentSeconds % 60}s
+                          </span>
+                        )}
+                        {c.dueDate && (
+                          <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                            <Clock size={11} /> Due: {new Date(c.dueDate).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
                     )}
 
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${

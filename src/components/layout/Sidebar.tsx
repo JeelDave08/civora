@@ -13,6 +13,7 @@ const ADMIN_ITEMS = [
   { name: "User Access", href: "/admin/personnel", icon: UserCog },
   { name: "City Map", href: "/admin/map", icon: Map },
   { name: "Monitoring", href: "/admin/monitoring", icon: Activity },
+  { name: "Notifications", href: "/admin/notifications", icon: Bell },
   { name: "Settings", href: "/admin/settings", icon: Settings },
 ]
 

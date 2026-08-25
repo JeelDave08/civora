@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Bell, Lock, Globe, Shield, Save, CheckCircle } from "lucide-react"
+import { Bell, Lock, Save, CheckCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
@@ -7,7 +7,7 @@ import { useAuth } from "../context/AuthContext"
 
 export function Settings() {
   const { user } = useAuth()
-  const [activeTab, setActiveTab] = useState<"notifications" | "security" | "system">("notifications")
+  const [activeTab, setActiveTab] = useState<"notifications" | "security">("notifications")
   const [savedSuccess, setSavedSuccess] = useState(false)
 
   const [settingsData, setSettingsData] = useState({
@@ -15,9 +15,7 @@ export function Settings() {
     smsAlerts: true,
     pushNotifications: true,
     twoFactor: false,
-    systemMode: "Automatic",
-    geocodeProvider: "LocationIQ",
-    apiKey: "pk.0c9741909440306217e5f3b924862636"
+    systemMode: "Automatic"
   })
 
   const handleSave = () => {
@@ -28,8 +26,8 @@ export function Settings() {
   return (
     <div className="max-w-5xl mx-auto space-y-8 p-4 md:p-8">
       <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Admin Settings</h1>
-        <p className="mt-1 text-slate-500">Manage application preferences, system configurations, and security rules.</p>
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Settings & Preferences</h1>
+        <p className="mt-1 text-slate-500">Manage application notification preferences and security rules.</p>
       </div>
 
       <div className="grid md:grid-cols-4 gap-8">
@@ -48,13 +46,6 @@ export function Settings() {
             className="w-full justify-start gap-3"
           >
             <Lock size={18} /> Security & Auth
-          </Button>
-          <Button
-            variant={activeTab === "system" ? "default" : "ghost"}
-            onClick={() => setActiveTab("system")}
-            className="w-full justify-start gap-3"
-          >
-            <Globe size={18} /> System & Geocoding
           </Button>
         </div>
 
@@ -139,31 +130,6 @@ export function Settings() {
                 <div className="space-y-2 pt-2">
                   <label className="text-xs font-semibold text-slate-700">Admin Account</label>
                   <Input value={user?.email || "admin@civora.com"} disabled className="bg-slate-50 font-mono text-xs" />
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeTab === "system" && (
-            <Card className="border-slate-100 shadow-sm rounded-2xl">
-              <CardHeader>
-                <CardTitle className="text-xl font-bold text-slate-800">Geocoding & API Config</CardTitle>
-                <CardDescription>Configure GIS location resolution and LocationIQ geocoding settings.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-700">Geocoding Provider</label>
-                  <Input value={settingsData.geocodeProvider} disabled className="bg-slate-50 font-semibold text-xs" />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-700">LocationIQ Access Token</label>
-                  <Input
-                    value={settingsData.apiKey}
-                    onChange={(e) => setSettingsData({ ...settingsData, apiKey: e.target.value })}
-                    className="font-mono text-xs"
-                  />
-                  <p className="text-[11px] text-slate-400">Token used for reverse geocoding citizen complaints into human-readable addresses.</p>
                 </div>
               </CardContent>
             </Card>

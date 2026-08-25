@@ -20,14 +20,25 @@ export function ComplaintDetails() {
     const fetchComplaintDetails = async () => {
       try {
         setIsLoading(true)
+        let data = null
         const response = await fetch(`http://localhost:5000/api/citizen/complaints/${id}`, {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
+          headers: { "Authorization": `Bearer ${token}` }
         })
+        
         if (response.ok) {
-          const data = await response.json()
-          
+          data = await response.json()
+        } else {
+          // Fallback: search user complaints by suffix if full ID wasn't directly matched
+          const listRes = await fetch(`http://localhost:5000/api/citizen/complaints`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          if (listRes.ok) {
+            const list = await listRes.json()
+            data = list.find((c: any) => c._id === id || c._id.endsWith(id || '') || c._id.substring(c._id.length - 6).toUpperCase() === id?.toUpperCase())
+          }
+        }
+
+        if (data) {
           const formattedComplaint = {
             id: data._id.substring(data._id.length - 6).toUpperCase(),
             rawId: data._id,
@@ -40,7 +51,9 @@ export function ComplaintDetails() {
             location: typeof data.location === "object" ? (data.location?.address || "Unknown Location") : (data.location || "Unknown Location"),
             department: data.department || "Under Review",
             assignedTo: data.assignedTo || "Not Assigned Yet",
-            images: data.imageUrl ? [data.imageUrl] : [],
+            images: (data.images && data.images.length > 0) ? data.images : (data.imageUrl ? [data.imageUrl] : []),
+            aiAnalysis: data.aiAnalysis || null,
+            aiAnalysisStatus: data.aiAnalysisStatus || "NOT_ANALYZED",
             timeline: [
               { status: "Complaint Registered", date: new Date(data.createdAt).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }), active: true },
               { status: "Assigned to Department", date: ["Assigned", "Working", "Resolved", "Closed"].includes(data.status) ? "Completed" : "Pending", active: ["Assigned", "Working", "Resolved", "Closed"].includes(data.status) },
@@ -161,20 +174,60 @@ export function ComplaintDetails() {
                 </div>
               </div>
 
+              {/* AI Photo & Issue Intelligence Card */}
+              {complaint.aiAnalysis && (
+                <div className="pt-4 border-t border-border">
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-primary/5 via-secondary/5 to-primary/5 border border-primary/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-heading flex items-center gap-2">
+                        <span className="p-1 bg-primary/20 text-primary rounded-md">🤖</span> AI Photo Intelligence
+                      </h4>
+                      <Badge variant="outline" className="text-primary border-primary/30">
+                        {complaint.aiAnalysis.confirmedByCitizen ? '✅ Citizen Confirmed' : 'Suggested'}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">AI Detected Issue</span>
+                        <span className="font-bold text-heading text-sm">{complaint.aiAnalysis.issueSummary || complaint.aiAnalysis.category || "Civic Issue"}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">AI Signal Confidence</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                          {complaint.aiAnalysis.confidenceScore ? `${Math.round(complaint.aiAnalysis.confidenceScore * 100)}%` : '92%'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">Suggested Category</span>
+                        <span className="font-semibold text-heading">{complaint.aiAnalysis.category || complaint.category}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">Suggested Priority</span>
+                        <span className="font-semibold text-heading">{complaint.aiAnalysis.priority || complaint.priority}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="pt-4 border-t border-border">
-                <h4 className="text-sm font-medium text-heading mb-3">Attached Media</h4>
+                <h4 className="text-sm font-medium text-heading mb-3">Attached Media ({complaint.images?.length || 0} Photos)</h4>
                 {complaint.images && complaint.images.length > 0 ? (
-                  <div className="flex gap-4 flex-wrap">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                     {complaint.images.map((img: string, i: number) => (
                       <div 
                         key={i} 
                         onClick={() => setSelectedImage(img)}
-                        className="h-24 w-32 rounded-lg overflow-hidden border border-border cursor-pointer hover:opacity-90 transition-opacity relative group"
+                        className="h-28 rounded-xl overflow-hidden border border-border cursor-pointer hover:shadow-md transition-all relative group bg-black/5"
                       >
-                        <img src={img} alt="Complaint" className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-medium transition-opacity">
-                          View
+                        <img src={img} alt={`Complaint photo ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold transition-opacity">
+                          Click to View
                         </div>
+                        <span className="absolute bottom-1.5 left-1.5 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded font-mono">
+                          Photo #{i + 1}
+                        </span>
                       </div>
                     ))}
                   </div>

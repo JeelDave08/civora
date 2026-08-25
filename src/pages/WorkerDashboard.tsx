@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
-import { CheckCircle, Clock, MapPin, Camera, Navigation2, CheckSquare, AlertTriangle, Image as ImageIcon, ChevronRight, Activity, RefreshCw } from "lucide-react"
+import { Link } from "react-router-dom"
+import { CheckCircle, Clock, MapPin, Camera, Navigation2, CheckSquare, AlertTriangle, Image as ImageIcon, ChevronRight, Activity, RefreshCw, Play, StopCircle } from "lucide-react"
 import { motion } from "framer-motion"
 import { Card, CardContent } from "@/components/ui/Card"
 import { useAuth } from "../context/AuthContext"
@@ -20,6 +21,86 @@ export function WorkerDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTask, setActiveTask] = useState<any | null>(null);
+  const [timerSeconds, setTimerSeconds] = useState<number>(0);
+  const [isTimerActive, setIsTimerActive] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (activeTask) {
+      setTimerSeconds(activeTask.timeSpentSeconds || 0);
+      setIsTimerActive(!!activeTask.isTimerRunning);
+    }
+  }, [activeTask]);
+
+  useEffect(() => {
+    let interval: any = null;
+    if (isTimerActive) {
+      interval = setInterval(() => {
+        setTimerSeconds(prev => prev + 1);
+      }, 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerActive]);
+
+  const handleStartWork = async () => {
+    if (!activeTask) return;
+    try {
+      const res = await fetch(`${API_BASE}/complaints/${activeTask._id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          actionType: 'START_WORK',
+          status: 'Working',
+          isTimerRunning: true
+        })
+      });
+      if (res.ok) {
+        setIsTimerActive(true);
+        const updated = await res.json();
+        setActiveTask(updated);
+        fetchWorkerTasks();
+      }
+    } catch (err) {
+      console.error('Error starting work timer:', err);
+    }
+  };
+
+  const handleStopWork = async () => {
+    if (!activeTask) return;
+    try {
+      const res = await fetch(`${API_BASE}/complaints/${activeTask._id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          actionType: 'STOP_WORK',
+          isTimerRunning: false,
+          timeSpentSeconds: timerSeconds
+        })
+      });
+      if (res.ok) {
+        setIsTimerActive(false);
+        const updated = await res.json();
+        setActiveTask(updated);
+        fetchWorkerTasks();
+      }
+    } catch (err) {
+      console.error('Error stopping work timer:', err);
+    }
+  };
+
+  const formatTimer = (totalSecs: number) => {
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     fetchWorkerTasks();
@@ -38,9 +119,12 @@ export function WorkerDashboard() {
       });
       if (res.ok) {
         const data = await res.json();
-        const myTasks = (data.complaints || []).filter((c: any) => 
-          c && (c.workerId?._id === user?.id || c.workerId === user?.id || (user?.role === 'worker' && c.status === 'Assigned'))
-        );
+        const myTasks = (data.complaints || []).filter((c: any) => {
+          if (!c.workerId) return false;
+          const wId = typeof c.workerId === 'object' ? (c.workerId._id || c.workerId.id) : c.workerId;
+          const wEmail = typeof c.workerId === 'object' ? c.workerId.email : null;
+          return wId === user?.id || (wEmail && user?.email && wEmail.toLowerCase() === user.email.toLowerCase());
+        });
         setTasks(myTasks);
         if (myTasks.length > 0) {
           setActiveTask(myTasks[0]);
@@ -154,9 +238,11 @@ export function WorkerDashboard() {
                       <MapPin size={16} className="text-[#4CC9B0]" /> {getLocationString(activeTask.location) || activeTask.category || 'City Area'}
                     </p>
                   </div>
-                  <button className="h-12 px-6 flex items-center justify-center gap-2 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/20 shrink-0">
-                    <Navigation2 size={18} /> Navigate
-                  </button>
+                  <Link to="/worker/map">
+                    <button className="h-12 px-6 flex items-center justify-center gap-2 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/20 shrink-0">
+                      <Navigation2 size={18} /> Navigate
+                    </button>
+                  </Link>
                 </div>
 
                 <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -178,10 +264,46 @@ export function WorkerDashboard() {
                   </div>
 
                   <div className="space-y-4 flex flex-col h-full">
-                    <h3 className="font-bold text-slate-800 text-lg">Task Actions</h3>
-                    <div className="flex-1 space-y-3">
+                    <h3 className="font-bold text-slate-800 text-lg flex items-center justify-between">
+                      <span>Task Work Timer</span>
+                      {isTimerActive && (
+                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full animate-pulse border border-emerald-200">
+                          ● Timer Active
+                        </span>
+                      )}
+                    </h3>
+
+                    {/* LIVE TIMER DISPLAY BOX */}
+                    <div className="bg-slate-900 text-white p-5 rounded-3xl text-center space-y-2 shadow-inner relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-[#4CC9B0]/20 rounded-full blur-xl pointer-events-none"></div>
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Time Elapsed</p>
+                      <p className="text-3xl font-black font-mono text-[#4CC9B0] tracking-wider">
+                        {formatTimer(timerSeconds)}
+                      </p>
+                      
+                      {/* START / STOP BUTTONS */}
+                      <div className="pt-2 flex gap-2">
+                        {!isTimerActive ? (
+                          <button
+                            onClick={handleStartWork}
+                            className="flex-1 py-3 bg-[#4CC9B0] hover:bg-[#3bb59d] text-slate-950 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 transition-all shadow-md"
+                          >
+                            <Play size={16} fill="currentColor" /> Start Work Timer
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleStopWork}
+                            className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 transition-all shadow-md"
+                          >
+                            <StopCircle size={16} fill="currentColor" /> Stop Work Timer
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex-1 space-y-3 pt-2">
                       <textarea 
-                        className="w-full h-32 p-4 rounded-3xl border-2 border-slate-100 focus:outline-none focus:border-[#4CC9B0] bg-slate-50/50 focus:bg-white resize-none text-sm transition-all"
+                        className="w-full h-24 p-4 rounded-3xl border-2 border-slate-100 focus:outline-none focus:border-[#4CC9B0] bg-slate-50/50 focus:bg-white resize-none text-sm transition-all"
                         placeholder="Describe the work done or materials utilized..."
                       ></textarea>
                     </div>

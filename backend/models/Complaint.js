@@ -9,13 +9,64 @@ const complaintSchema = new mongoose.Schema({
   progress: { type: Number, default: 0 },
   citizenId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   workerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  startDate: { type: Date },
+  dueDate: { type: Date },
+  remarks: { type: String },
+  beforeImage: { type: String },
+  afterImage: { type: String },
   location: {
     lat: { type: Number },
     lng: { type: Number },
     address: { type: String }
   },
   imageUrl: { type: String },
+  images: [mongoose.Schema.Types.Mixed], // Supports String URLs or { url, publicId, aiAnalysis: { detectedIssue, confidenceScore, suggestedCategory, suggestedPriority, status, analyzedAt, confirmedByCitizen, confirmedAt } }
+  workStartedAt: { type: Date },
+  workEndedAt: { type: Date },
+  timeSpentSeconds: { type: Number, default: 0 },
+  isTimerRunning: { type: Boolean, default: false },
+  department: { type: String },
+  suggestedSlaHours: { type: Number, default: null },
+  slaDueAt: { type: Date, default: null },
+  aiAnalysisStatus: {
+    type: String,
+    enum: ['NOT_ANALYZED', 'ANALYZING', 'COMPLETED', 'FAILED'],
+    default: 'NOT_ANALYZED'
+  },
+  aiAnalysis: {
+    category: { type: String, default: null },
+    priority: { type: String, default: null },
+    department: { type: String, default: null },
+    issueSummary: { type: String, default: null },
+    suggestedSlaHours: { type: Number, default: null },
+    confidenceScore: { type: Number, min: 0, max: 1, default: null },
+    imageAnalysis: { type: String, default: null },
+    analyzedAt: { type: Date, default: null },
+    confirmedByCitizen: { type: Boolean, default: false },
+    confirmedAt: { type: Date, default: null }
+  },
+  aiProvider: { type: String, default: null },
+  aiModel: { type: String, default: null },
+  aiAnalysisVersion: { type: String, default: '1.0' },
+  aiImageAnalysis: {
+    detectedIssue: { type: String, default: null },
+    confidenceScore: { type: Number, min: 0, max: 1, default: null },
+    suggestedCategory: { type: String, default: null },
+    suggestedPriority: { type: String, default: null },
+    confirmedByCitizen: { type: Boolean, default: false },
+    analyzedAt: { type: Date, default: null },
+    confirmedAt: { type: Date, default: null }
+  },
   createdAt: { type: Date, default: Date.now },
 });
+
+// Backward-compatible indexes for querying complaints efficiently
+complaintSchema.index({ citizenId: 1 });
+complaintSchema.index({ status: 1 });
+complaintSchema.index({ department: 1 });
+complaintSchema.index({ priority: 1 });
+complaintSchema.index({ workerId: 1 });
+complaintSchema.index({ createdAt: -1 });
+
 
 module.exports = mongoose.model('Complaint', complaintSchema);

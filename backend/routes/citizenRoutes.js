@@ -52,7 +52,9 @@ router.get('/dashboard', protect, async (req, res) => {
 // Get All Complaints
 router.get('/complaints', protect, async (req, res) => {
   try {
-    const allComplaints = await Complaint.find({ citizenId: req.user.id }).sort({ createdAt: -1 });
+    const allComplaints = await Complaint.find({ citizenId: req.user.id })
+      .populate('workerId', 'fullName email phone department')
+      .sort({ createdAt: -1 });
     res.json(allComplaints);
   } catch (err) {
     res.status(500).json({ message: 'Server error fetching complaints' });
@@ -94,11 +96,68 @@ router.delete('/complaints/:id', protect, async (req, res) => {
     res.status(500).json({ message: 'Server error deleting complaint' });
   }
 });
-// Create Complaint
+
+const { analyzeImage } = require('../services/aiImageAnalysisService');
+
+// Analyze Photo Evidence using AI Vision API
+router.post('/complaints/analyze-image', async (req, res) => {
+  try {
+    const { imageUrl } = req.body;
+    if (!imageUrl) {
+      return res.status(400).json({ success: false, message: 'Image URL is required for AI analysis' });
+    }
+
+    const analysis = await analyzeImage(imageUrl);
+
+    res.json({
+      success: true,
+      analysis: {
+        detectedIssue: analysis.detectedIssue,
+        confidenceScore: analysis.confidenceScore,
+        suggestedCategory: analysis.suggestedCategory,
+        suggestedPriority: analysis.suggestedPriority,
+        suggestedDepartment: analysis.suggestedDepartment,
+        analyzedAt: analysis.analyzedAt
+      }
+    });
+  } catch (err) {
+    console.error('Error analyzing image with AI:', err);
+    res.status(500).json({
+      success: false,
+      message: 'AI analysis is temporarily unavailable. You can continue manually.',
+      error: err.message
+    });
+  }
+});
+
+// Create Complaint (Supports optional AI fields & citizen confirmation)
 router.post('/complaints', protect, async (req, res) => {
   try {
-    let { title, description, category, priority, location, lat, lng, imageUrl } = req.body;
+    let { 
+      title, 
+      description, 
+      category, 
+      priority, 
+      department,
+      location, 
+      lat, 
+      lng, 
+      imageUrl, 
+      images,
+      aiAnalysis,
+      aiAnalysisStatus,
+      suggestedSlaHours,
+      slaDueAt,
+      aiProvider,
+      aiModel,
+      aiAnalysisVersion,
+      aiImageAnalysis
+    } = req.body;
     
+    // Ensure images array is initialized
+    const imageList = Array.isArray(images) && images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
+    const primaryImage = imageList[0] || '';
+
     // Auto-geocode address if lat/lng are missing
     if ((!lat || !lng) && location) {
       try {
@@ -117,19 +176,36 @@ router.post('/complaints', protect, async (req, res) => {
       }
     }
 
+    // Calculate SLA due date if suggested SLA hours provided but slaDueAt not passed
+    let finalSlaDueAt = slaDueAt ? new Date(slaDueAt) : null;
+    if (!finalSlaDueAt && (suggestedSlaHours || (aiAnalysis && aiAnalysis.suggestedSlaHours))) {
+      const hours = suggestedSlaHours || aiAnalysis.suggestedSlaHours;
+      finalSlaDueAt = new Date(Date.now() + hours * 60 * 60 * 1000);
+    }
+
     const newComplaint = new Complaint({
       title,
       description,
       category,
       priority,
+      department: department || (aiAnalysis ? aiAnalysis.department : null),
       location: { 
         address: location,
         lat: lat ? parseFloat(lat) : 23.0225,
         lng: lng ? parseFloat(lng) : 72.5714
       },
-      imageUrl,
+      imageUrl: primaryImage,
+      images: imageList,
       citizenId: req.user.id,
-      status: 'New'
+      status: 'New',
+      suggestedSlaHours: suggestedSlaHours || (aiAnalysis ? aiAnalysis.suggestedSlaHours : null),
+      slaDueAt: finalSlaDueAt,
+      aiAnalysisStatus: aiAnalysisStatus || (aiAnalysis ? 'COMPLETED' : 'NOT_ANALYZED'),
+      aiAnalysis: aiAnalysis || undefined,
+      aiProvider: aiProvider || null,
+      aiModel: aiModel || null,
+      aiAnalysisVersion: aiAnalysisVersion || '1.0',
+      aiImageAnalysis: aiImageAnalysis || undefined
     });
 
     await newComplaint.save();
@@ -137,6 +213,50 @@ router.post('/complaints', protect, async (req, res) => {
   } catch (err) {
     console.error('Error creating complaint:', err);
     res.status(500).json({ message: 'Server error while creating complaint' });
+  }
+});
+
+// Citizen confirms or overrides AI Analysis suggestions
+router.put('/complaints/:id/confirm-ai', protect, async (req, res) => {
+  try {
+    const { category, priority, department, suggestedSlaHours } = req.body;
+    const complaint = await Complaint.findById(req.params.id);
+
+    if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
+    if (complaint.citizenId.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to confirm this complaint' });
+    }
+
+    // Update final confirmed complaint fields
+    if (category) complaint.category = category;
+    if (priority) complaint.priority = priority;
+    if (department) complaint.department = department;
+
+    const slaHours = suggestedSlaHours || (complaint.aiAnalysis ? complaint.aiAnalysis.suggestedSlaHours : complaint.suggestedSlaHours);
+    if (slaHours) {
+      complaint.suggestedSlaHours = slaHours;
+      complaint.slaDueAt = new Date(Date.now() + slaHours * 60 * 60 * 1000);
+    }
+
+    if (complaint.aiAnalysis) {
+      complaint.aiAnalysis.confirmedByCitizen = true;
+      complaint.aiAnalysis.confirmedAt = new Date();
+    } else {
+      complaint.aiAnalysis = {
+        category: complaint.category,
+        priority: complaint.priority,
+        department: complaint.department,
+        suggestedSlaHours: slaHours || null,
+        confirmedByCitizen: true,
+        confirmedAt: new Date()
+      };
+    }
+
+    await complaint.save();
+    res.json(complaint);
+  } catch (err) {
+    console.error('Error confirming AI complaint:', err);
+    res.status(500).json({ message: 'Server error confirming complaint AI data' });
   }
 });
 

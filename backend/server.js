@@ -24,6 +24,7 @@ const adminRoutes = require('./routes/adminRoutes');
 app.use('/api/admin-auth', adminAuthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/citizen', citizenRoutes);
+app.use('/api', citizenRoutes); // Alias for /api/complaints/analyze-image & /api/complaints
 app.use('/api/admin', adminRoutes);
 
 app.get('/', (req, res) => {

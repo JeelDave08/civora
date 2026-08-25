@@ -110,10 +110,12 @@ export function CitizenNavbar() {
       </div>
 
       <div className="flex items-center gap-4">
-        <Button variant="outline" size="icon" className="relative rounded-full">
-          <Bell size={18} />
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-secondary border border-white"></span>
-        </Button>
+        <Link to="/citizen/notifications" title="View Notifications">
+          <Button variant="outline" size="icon" className="relative rounded-full">
+            <Bell size={18} />
+            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-secondary border border-white"></span>
+          </Button>
+        </Link>
         <div className="flex items-center gap-3 pl-4 border-l border-border">
           <div className="text-right hidden sm:block">
             <p className="text-sm font-semibold text-heading">{user?.name || 'Civora Citizen'}</p>

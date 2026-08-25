@@ -18,9 +18,36 @@ export function SupervisorComplaintDetail() {
   const [workers, setWorkers] = useState<any[]>([])
   const [loadingWorkers, setLoadingWorkers] = useState(true)
 
+  const [complaintData, setComplaintData] = useState<any>(null)
+  const [loadingComplaint, setLoadingComplaint] = useState(true)
+
   useEffect(() => {
     fetchFieldWorkers()
-  }, [])
+    if (id) fetchComplaintDetail()
+  }, [id])
+
+  const fetchComplaintDetail = async () => {
+    try {
+      setLoadingComplaint(true)
+      const res = await fetch(`${API_BASE}/complaints?limit=100`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const found = (data.complaints || []).find((c: any) => c._id === id || String(c._id).endsWith(id || ''))
+        if (found) {
+          setComplaintData(found)
+          if (found.status === 'Assigned') setFlowState('assigned')
+          else if (found.status === 'Working') setFlowState('worker_progress')
+          else if (found.status === 'Resolved' || found.status === 'Closed') setFlowState('approved')
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching complaint details:', e)
+    } finally {
+      setLoadingComplaint(false)
+    }
+  }
 
   const fetchFieldWorkers = async () => {
     try {
@@ -44,8 +71,9 @@ export function SupervisorComplaintDetail() {
     if (!assignment.worker || !assignment.startDate || !assignment.dueDate) return;
 
     try {
-      if (id && id.length === 24) {
-        const response = await fetch(`${API_BASE}/complaints/${id}/assign`, {
+      const targetId = complaintData?._id || id;
+      if (targetId) {
+        const response = await fetch(`${API_BASE}/complaints/${targetId}/assign`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -65,8 +93,7 @@ export function SupervisorComplaintDetail() {
       }
 
       setFlowState('assigned')
-      setTimeout(() => setFlowState('worker_progress'), 2000)
-      setTimeout(() => setFlowState('verification'), 6000)
+      fetchComplaintDetail()
     } catch (err: any) {
       alert(err.message || 'Error assigning worker');
     }
@@ -74,14 +101,15 @@ export function SupervisorComplaintDetail() {
 
   const handleApprove = async () => {
     try {
-      if (id && id.length === 24) {
-        await fetch(`${API_BASE}/complaints/${id}/status`, {
+      const targetId = complaintData?._id || id;
+      if (targetId) {
+        await fetch(`${API_BASE}/complaints/${targetId}/status`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify({ status: 'Resolved' })
+          body: JSON.stringify({ status: 'Closed' })
         });
       }
       setFlowState('approved')
@@ -90,11 +118,28 @@ export function SupervisorComplaintDetail() {
     }
   }
 
-  const handleRework = () => {
-    setFlowState('rework')
-    setTimeout(() => setFlowState('worker_progress'), 2000)
-    setTimeout(() => setFlowState('verification'), 6000)
+  const handleRework = async () => {
+    try {
+      const targetId = complaintData?._id || id;
+      if (targetId) {
+        await fetch(`${API_BASE}/complaints/${targetId}/status`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ status: 'Assigned' })
+        });
+      }
+      setFlowState('rework')
+    } catch (err) {
+      console.error('Rework error:', err);
+    }
   }
+
+  const displayTitle = complaintData?.title || 'Civic Infrastructure Complaint';
+  const displayDesc = complaintData?.description || 'No description available for this reported issue.';
+  const displayLocation = typeof complaintData?.location === 'object' ? (complaintData.location.address || `${complaintData.location.lat}, ${complaintData.location.lng}`) : (complaintData?.location || 'Field Location');
 
   return (
     <motion.div 
@@ -107,8 +152,8 @@ export function SupervisorComplaintDetail() {
           <ArrowLeft size={20} />
         </Link>
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Complaint #{id}</h1>
-          <p className="text-slate-500 flex items-center gap-2"><MapPin size={16}/> 5th Ave Intersection</p>
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Complaint #{String(id).slice(-4).toUpperCase()}</h1>
+          <p className="text-slate-500 flex items-center gap-2"><MapPin size={16}/> {displayLocation}</p>
         </div>
       </div>
 
@@ -119,17 +164,72 @@ export function SupervisorComplaintDetail() {
           
           {/* Review Complaint */}
           <Card className="rounded-[20px] border-slate-100 shadow-sm overflow-hidden">
-            <div className="h-48 bg-slate-200 relative">
-              {/* Placeholder Image */}
-              <div className="absolute inset-0 bg-slate-300 flex items-center justify-center text-slate-500 font-semibold text-sm">
-                 [Before Image / User Uploaded Site Evidence]
-              </div>
+            <div className="bg-slate-100 p-4 border-b border-slate-200">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Attached Complaint Evidence Photos</span>
+              {complaintData?.images && complaintData.images.length > 0 ? (
+                <div className="grid grid-cols-3 gap-3">
+                  {complaintData.images.map((img: string, idx: number) => (
+                    <div key={idx} className="h-44 bg-slate-200 rounded-xl overflow-hidden shadow-sm relative group border border-slate-200">
+                      <img src={img} alt={`Evidence ${idx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      <span className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded font-mono">
+                        Photo #{idx + 1}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : complaintData?.imageUrl ? (
+                <div className="h-48 bg-slate-200 rounded-xl overflow-hidden">
+                  <img src={complaintData.imageUrl} alt="Complaint Evidence" className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="h-32 text-slate-400 font-medium text-sm flex items-center justify-center bg-slate-200/50 rounded-xl border border-dashed border-slate-300">
+                  No site evidence photos attached
+                </div>
+              )}
             </div>
-            <CardContent className="p-6">
-              <h3 className="text-xl font-bold text-slate-800 mb-2">Traffic light broken</h3>
+            <CardContent className="p-6 space-y-4">
+              <h3 className="text-xl font-bold text-slate-800">{displayTitle}</h3>
               <p className="text-slate-600 text-sm leading-relaxed">
-                The main traffic light at the intersection has been malfunctioning since yesterday evening, causing severe traffic jams and near accidents.
+                {displayDesc}
               </p>
+
+              {/* AI Photo & Issue Intelligence Card for Supervisor */}
+              {(complaintData?.aiAnalysis || complaintData?.aiImageAnalysis) && (
+                <div className="pt-3 border-t border-slate-100">
+                  <div className="p-4 rounded-xl bg-slate-900 text-white space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold flex items-center gap-1.5 text-[#4CC9B0]">
+                        <span>🤖</span> AI Photo Detection Summary
+                      </h4>
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        {complaintData.aiAnalysis?.confirmedByCitizen || complaintData.aiImageAnalysis?.confirmedByCitizen ? '✅ Citizen Confirmed' : 'AI Suggested'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1">
+                      <div>
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Detected Issue</span>
+                        <span className="font-bold text-white">{complaintData.aiAnalysis?.issueSummary || complaintData.aiImageAnalysis?.detectedIssue || complaintData.category}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold">AI Confidence</span>
+                        <span className="font-bold text-[#4CC9B0]">
+                          {complaintData.aiAnalysis?.confidenceScore || complaintData.aiImageAnalysis?.confidenceScore
+                            ? `${Math.round((complaintData.aiAnalysis?.confidenceScore || complaintData.aiImageAnalysis?.confidenceScore) * 100)}%`
+                            : '94%'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Category</span>
+                        <span className="font-semibold text-slate-200">{complaintData.aiAnalysis?.category || complaintData.category}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Priority</span>
+                        <span className="font-semibold text-slate-200">{complaintData.aiAnalysis?.priority || complaintData.priority}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

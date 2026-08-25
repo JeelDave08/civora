@@ -124,6 +124,7 @@ function App() {
                 <Route path="personnel" element={<AdminPersonnel />} />
                 <Route path="map" element={<MapPage />} />
                 <Route path="monitoring" element={<AdminMonitoring />} />
+                <Route path="notifications" element={<SupervisorNotifications />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="statistics" element={<PublicStatistics />} />
                 <Route path="feedback" element={<Feedback />} />

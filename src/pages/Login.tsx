@@ -37,7 +37,13 @@ const Logo = () => (
 type Role = 'Citizen' | 'Admin' | 'Supervisor' | 'Worker';
 
 export function Login() {
-  const { register, handleSubmit } = useForm()
+  const { register, handleSubmit, setValue } = useForm({
+    defaultValues: {
+      loginId: '',
+      password: '',
+      rememberMe: false
+    }
+  })
   const navigate = useNavigate()
   const { login } = useAuth()
   const [selectedRole, setSelectedRole] = useState<Role>('Citizen')
@@ -54,6 +60,20 @@ export function Login() {
     'Norsk bokmål': 'no', 'română': 'ro', 'Svenska': 'sv'
   }
   const languages = Object.keys(languageMapping)
+
+  useEffect(() => {
+    const savedLoginId = localStorage.getItem('civora_remember_loginId')
+    const savedPassword = localStorage.getItem('civora_remember_password')
+    const savedRole = localStorage.getItem('civora_remember_role') as Role
+    if (savedLoginId && savedPassword) {
+      setValue('loginId', savedLoginId)
+      setValue('password', savedPassword)
+      setValue('rememberMe', true)
+      if (savedRole && ['Citizen', 'Admin', 'Supervisor', 'Worker'].includes(savedRole)) {
+        setSelectedRole(savedRole)
+      }
+    }
+  }, [setValue])
 
   useEffect(() => {
     const match = document.cookie.match(new RegExp('(^| )googtrans=([^;]+)'))
@@ -121,6 +141,16 @@ export function Login() {
       const result = await response.json();
 
       if (response.ok) {
+        if (data.rememberMe) {
+          localStorage.setItem('civora_remember_loginId', email)
+          localStorage.setItem('civora_remember_password', data.password)
+          localStorage.setItem('civora_remember_role', selectedRole)
+        } else {
+          localStorage.removeItem('civora_remember_loginId')
+          localStorage.removeItem('civora_remember_password')
+          localStorage.removeItem('civora_remember_role')
+        }
+
         login(result.token, result.user);
         
         const role = result.user.role;
@@ -129,6 +159,14 @@ export function Login() {
         else if (role === 'worker') navigate("/worker/dashboard");
         else navigate("/citizen/dashboard");
       } else {
+        // If login fails (e.g. user was deleted from DB), clear stored remember-me credentials
+        localStorage.removeItem('civora_remember_loginId')
+        localStorage.removeItem('civora_remember_password')
+        localStorage.removeItem('civora_remember_role')
+        setValue('loginId', '')
+        setValue('password', '')
+        setValue('rememberMe', false)
+
         setErrorMsg(result.message || 'Login failed. Please check your credentials.');
       }
     } catch (error) {
@@ -369,7 +407,10 @@ export function Login() {
             <div className="relative">
               <Mail className="absolute left-4 top-[18px] w-5 h-5 text-gray-400" strokeWidth={1.5} />
               <input
+                id="username"
+                name="username"
                 type="text"
+                autoComplete="username"
                 {...register("loginId", { required: true })}
                 className="w-full h-[56px] pl-[44px] pr-4 rounded-[16px] border border-gray-200 bg-white text-[#1F2937] placeholder-gray-400 focus:outline-none focus:border-[#1E9D74] focus:ring-1 focus:ring-[#1E9D74] transition-all text-[14px]"
                 placeholder={selectedRole === 'Admin' ? 'admin@admin.civora.com' : 'Email or Mobile Number'}
@@ -379,7 +420,10 @@ export function Login() {
             <div className="relative">
               <Lock className="absolute left-4 top-[18px] w-5 h-5 text-gray-400" strokeWidth={1.5} />
               <input
+                id="current-password"
+                name="password"
                 type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
                 {...register("password", { required: true })}
                 className="w-full h-[56px] pl-[44px] pr-12 rounded-[16px] border border-gray-200 bg-white text-[#1F2937] placeholder-gray-400 focus:outline-none focus:border-[#1E9D74] focus:ring-1 focus:ring-[#1E9D74] transition-all text-[14px]"
                 placeholder="Password"
@@ -398,6 +442,7 @@ export function Login() {
                 <div className="relative flex items-center justify-center">
                   <input 
                     type="checkbox" 
+                    {...register("rememberMe")}
                     className="peer appearance-none w-4 h-4 rounded-[4px] border border-gray-300 bg-white checked:bg-[#1E9D74] checked:border-[#1E9D74] focus:outline-none focus:ring-2 focus:ring-[#1E9D74]/20 transition-all cursor-pointer"
                   />
                   <svg className="absolute w-2.5 h-2.5 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity" viewBox="0 0 17 12" fill="none" xmlns="http://www.w3.org/2000/svg">
