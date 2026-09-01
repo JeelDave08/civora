@@ -408,7 +408,6 @@ export function Login() {
               <Mail className="absolute left-4 top-[18px] w-5 h-5 text-gray-400" strokeWidth={1.5} />
               <input
                 id="username"
-                name="username"
                 type="text"
                 autoComplete="username"
                 {...register("loginId", { required: true })}
@@ -421,7 +420,6 @@ export function Login() {
               <Lock className="absolute left-4 top-[18px] w-5 h-5 text-gray-400" strokeWidth={1.5} />
               <input
                 id="current-password"
-                name="password"
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 {...register("password", { required: true })}

@@ -11,6 +11,7 @@ const ADMIN_ITEMS = [
   { name: "Services", href: "/admin/services", icon: FileText },
   { name: "Citizens", href: "/admin/citizens", icon: Users },
   { name: "User Access", href: "/admin/personnel", icon: UserCog },
+  { name: "Civic Intelligence", href: "/admin/civic-intelligence", icon: Activity },
   { name: "City Map", href: "/admin/map", icon: Map },
   { name: "Monitoring", href: "/admin/monitoring", icon: Activity },
   { name: "Notifications", href: "/admin/notifications", icon: Bell },

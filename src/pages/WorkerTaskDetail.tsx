@@ -36,7 +36,7 @@ export function WorkerTaskDetail() {
         if (found) {
           setTaskData(found)
           if (found.status === 'Working') setTaskState('in_progress')
-          if (found.status === 'Resolved' || found.status === 'Closed') setTaskState('completed')
+          if (['Pending Citizen Verification', 'Resolved', 'Closed'].includes(found.status)) setTaskState('completed')
         }
       }
     } catch (e) {
@@ -75,7 +75,7 @@ export function WorkerTaskDetail() {
   const handleSubmitCompletion = async () => {
     setSubmitting(true)
     setTaskState('completed')
-    await updateBackendStatus('Resolved', { remarks })
+    await updateBackendStatus('Pending Citizen Verification', { remarks })
     setSubmitting(false)
     setTimeout(() => setTaskState('verification'), 1200)
   }

@@ -34,7 +34,9 @@ export function MyComplaints() {
             description: c.description || c.title,
             date: new Date(c.createdAt).toLocaleDateString(),
             status: c.status,
-            priority: c.priority
+            priority: c.priority,
+            supporterCount: c.communityIssue?.supporterCount || 1,
+            isPrimary: c.communityIssue?.isPrimary !== false
           }));
           setComplaintsData(mappedData);
         }
@@ -43,6 +45,7 @@ export function MyComplaints() {
       } finally {
         setIsLoading(false);
       }
+
     };
     if (token) fetchComplaints();
   }, [token]);
@@ -151,7 +154,17 @@ export function MyComplaints() {
                 ) : complaintsData.filter(c => c.category.toLowerCase().includes(searchTerm.toLowerCase()) || c.description.toLowerCase().includes(searchTerm.toLowerCase())).map((complaint) => (
                   <TableRow key={complaint.rawId}>
                     <TableCell className="font-medium text-primary bg-primary/10 px-2 py-1 rounded-md inline-flex mt-3 ml-2">#{complaint.id}</TableCell>
-                    <TableCell>{complaint.category}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span>{complaint.category}</span>
+                        {complaint.supporterCount > 1 && (
+                          <span className="text-[11px] font-semibold text-primary flex items-center gap-1 mt-0.5">
+                            👥 {complaint.supporterCount} Citizens Joined
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+
                     <TableCell className="max-w-[200px] truncate">{complaint.description}</TableCell>
                     <TableCell>{complaint.date}</TableCell>
                     <TableCell>

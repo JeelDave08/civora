@@ -100,7 +100,12 @@ interface Complaint {
   location: { lat?: number; lng?: number; address?: string }
   createdAt: string
   citizenId?: { fullName?: string }
+  communityIssue?: {
+    isPrimary?: boolean
+    supporterCount?: number
+  }
 }
+
 
 // Haversine distance in km
 function getDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
@@ -349,11 +354,11 @@ export function NearbyIssues() {
                     }}
                   >
                     <Popup>
-                      <div style={{ minWidth: "200px", fontFamily: "sans-serif" }}>
+                      <div style={{ minWidth: "210px", fontFamily: "sans-serif" }}>
                         <strong style={{ fontSize: "14px", display: "block", marginBottom: "4px" }}>
                           {complaint.title}
                         </strong>
-                        <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "4px" }}>
+                        <div style={{ display: "flex", gap: "6px", alignItems: "center", marginBottom: "4px", flexWrap: "wrap" }}>
                           <span
                             style={{
                               fontSize: "11px",
@@ -365,6 +370,9 @@ export function NearbyIssues() {
                             }}
                           >
                             {complaint.status}
+                          </span>
+                          <span style={{ fontSize: "11px", color: "#3b82f6", background: "rgba(59,130,246,0.1)", padding: "2px 6px", borderRadius: "10px", fontWeight: 600 }}>
+                            👥 {complaint.communityIssue?.supporterCount || 1} Citizens
                           </span>
                           <span style={{ fontSize: "11px", color: "#888" }}>
                             {complaint.distance?.toFixed(1)} km away
@@ -378,11 +386,29 @@ export function NearbyIssues() {
                             📍 {complaint.location.address.substring(0, 80)}{complaint.location.address.length > 80 ? "..." : ""}
                           </p>
                         )}
-                        <p style={{ fontSize: "11px", color: "#999", marginTop: "6px" }}>
-                          🕐 {timeAgo(complaint.createdAt)}
-                        </p>
+                        <div style={{ marginTop: "8px", paddingTop: "6px", borderTop: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: "11px", color: "#999" }}>
+                            🕐 {timeAgo(complaint.createdAt)}
+                          </span>
+                          <button
+                            onClick={() => navigate(`/citizen/complaint/${complaint._id}`)}
+                            style={{
+                              fontSize: "11px",
+                              background: "#3b82f6",
+                              color: "white",
+                              border: "none",
+                              padding: "4px 10px",
+                              borderRadius: "6px",
+                              cursor: "pointer",
+                              fontWeight: 600
+                            }}
+                          >
+                            View & Join
+                          </button>
+                        </div>
                       </div>
                     </Popup>
+
                   </Marker>
                 ))}
               </MapContainer>

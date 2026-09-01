@@ -96,6 +96,10 @@ export function AdminMonitoring() {
         ))}
       </div>
 
+      {/* Admin Community Issues & Manual Merge Console */}
+      <AdminCommunityManagement token={token} />
+
+
       {/* Main Monitoring Table & Filters */}
       <Card className="rounded-[24px] border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] overflow-hidden">
         <CardHeader className="border-b border-slate-100 bg-slate-50/50 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -328,3 +332,235 @@ function AdminActivityFeed({ token }: { token: string | null }) {
     </Card>
   );
 }
+
+function AdminCommunityManagement({ token }: { token: string | null }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [primaryId, setPrimaryId] = useState('');
+  const [secondaryId, setSecondaryId] = useState('');
+  const [reason, setReason] = useState('');
+  const [merging, setMerging] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+
+  useEffect(() => {
+    fetchCommunityData();
+  }, []);
+
+  const fetchCommunityData = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE}/complaints/community-issues`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const cData = await res.json();
+        setData(cData);
+      }
+    } catch (e) {
+      console.error('Error fetching admin community data:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleManualMerge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!primaryId || !secondaryId) {
+      alert('Please provide both Primary and Secondary Complaint IDs');
+      return;
+    }
+
+    setMerging(true);
+    try {
+      const res = await fetch(`${API_BASE}/complaints/merge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          primaryComplaintId: primaryId,
+          secondaryComplaintId: secondaryId,
+          reason
+        })
+      });
+
+      const result = await res.json();
+      if (res.ok) {
+        alert(result.message);
+        setPrimaryId('');
+        setSecondaryId('');
+        setReason('');
+        setShowMergeModal(false);
+        fetchCommunityData();
+      } else {
+        alert(result.message || 'Failed to merge complaints');
+      }
+    } catch (err: any) {
+      alert('Error merging complaints: ' + err.message);
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  return (
+    <Card className="rounded-[24px] border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] overflow-hidden my-6">
+      <CardHeader className="border-b border-slate-100 bg-slate-50/50 p-6 flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <span>🔗</span> Duplicate Complaint Detection & Community Issues Console
+          </CardTitle>
+          <CardDescription className="text-xs text-slate-500 mt-1">
+            Monitor primary issues, citizen support counts, and perform manual consolidation of duplicate reports.
+          </CardDescription>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowMergeModal(true)}
+            className="text-xs font-bold bg-slate-900 text-white px-3.5 py-2 rounded-xl hover:bg-slate-800 transition-all shadow-sm flex items-center gap-1.5"
+          >
+            <span>🔗</span> Manual Duplicate Merge
+          </button>
+          <button
+            onClick={fetchCommunityData}
+            className="text-xs font-bold bg-white border border-slate-200 hover:bg-slate-50 px-3.5 py-2 rounded-xl transition-all shadow-sm"
+          >
+            Refresh
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6">
+        {loading ? (
+          <div className="flex items-center justify-center py-8 text-slate-400">
+            <Loader2 className="w-5 h-5 text-[#4CC9B0] animate-spin mr-2" />
+            <span className="text-xs font-semibold">Loading community metrics...</span>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Community Metrics Overview */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 text-center">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-400 block">Primary Community Issues</span>
+                <span className="text-2xl font-bold text-indigo-900">{data?.metrics?.totalCommunityIssues || 0}</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-100 text-center">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-500 block">Total Supporters</span>
+                <span className="text-2xl font-bold text-emerald-900">{data?.metrics?.totalSupportersCount || 0}</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-purple-50/50 border border-purple-100 text-center">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-purple-400 block">Duplicates Consolidated</span>
+                <span className="text-2xl font-bold text-purple-900">{data?.metrics?.totalDuplicatesConsolidated || 0}</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-blue-50/50 border border-blue-100 text-center">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-blue-400 block">Citizens/Issue Ratio</span>
+                <span className="text-2xl font-bold text-blue-900">{data?.metrics?.citizenParticipationRate || 1.0}</span>
+              </div>
+            </div>
+
+            {/* Primary Issues List */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-bold text-slate-800">Top Primary Community Issues</h4>
+              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                {(data?.primaryIssues || []).map((issue: any) => (
+                  <div key={issue._id} className="p-3.5 rounded-xl border border-slate-100 bg-slate-50 flex items-center justify-between text-xs">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-[10px] bg-slate-200 px-1.5 py-0.5 rounded text-slate-700">
+                          #{String(issue._id).slice(-4).toUpperCase()}
+                        </span>
+                        <span className="font-bold text-slate-800">{issue.title}</span>
+                      </div>
+                      <span className="text-[11px] text-slate-400 block mt-0.5">
+                        Category: {issue.category} • Status: {issue.status}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full text-[11px]">
+                        👥 {issue.communityIssue?.supporterCount || 1} Supporters
+                      </span>
+                      {issue.communityIssue?.duplicateCount > 0 && (
+                        <span className="font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded text-[11px]">
+                          ⚡ {issue.communityIssue.duplicateCount} Merged
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+
+      {/* Manual Duplicate Merge Modal */}
+      {showMergeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <span>🔗</span> Manual Duplicate Complaint Consolidation
+              </h3>
+              <button onClick={() => setShowMergeModal(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+
+            <form onSubmit={handleManualMerge} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Primary Complaint ID (Keep Operational)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Paste Primary Mongo _id or select from list"
+                  value={primaryId}
+                  onChange={(e) => setPrimaryId(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Secondary Complaint ID (To Merge & Close)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Paste Secondary Duplicate Mongo _id"
+                  value={secondaryId}
+                  onChange={(e) => setSecondaryId(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Consolidation Reason</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Exact same pothole reported at main road"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0]"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMergeModal(false)}
+                  className="h-9 px-4 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={merging}
+                  className="h-9 px-4 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800"
+                >
+                  {merging ? 'Merging...' : 'Consolidate Complaints'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+

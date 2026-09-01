@@ -62,6 +62,7 @@ import { AdminServices } from "./pages/AdminServices"
 import { AdminCitizens } from "./pages/AdminCitizens"
 import { AdminPersonnel } from "./pages/AdminPersonnel"
 import { AdminMonitoring } from "./pages/AdminMonitoring"
+import { CivicIntelligence } from "./pages/CivicIntelligence"
 
 import { ForgotPassword } from "./pages/ForgotPassword"
 import { RaiseComplaint } from "./pages/RaiseComplaint"
@@ -122,6 +123,7 @@ function App() {
                 <Route path="services" element={<AdminServices />} />
                 <Route path="citizens" element={<AdminCitizens />} />
                 <Route path="personnel" element={<AdminPersonnel />} />
+                <Route path="civic-intelligence" element={<CivicIntelligence />} />
                 <Route path="map" element={<MapPage />} />
                 <Route path="monitoring" element={<AdminMonitoring />} />
                 <Route path="notifications" element={<SupervisorNotifications />} />

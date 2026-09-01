@@ -188,10 +188,44 @@ export function SupervisorComplaintDetail() {
               )}
             </div>
             <CardContent className="p-6 space-y-4">
+              {/* Community Issue Telemetry & Reopen Alert Banner */}
+              {complaintData?.communityIssue && (
+                <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-50 via-slate-50 to-indigo-50 border border-indigo-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                      👥 Community Issue Telemetry
+                    </span>
+                    <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-indigo-600 text-white">
+                      {complaintData.communityIssue.supporterCount || 1} Citizens Affected
+                    </span>
+                  </div>
+
+                  {complaintData.communityIssue.verification?.reopenSignaled && (
+                    <div className="p-3 rounded-lg bg-rose-50 border border-rose-300 flex items-center justify-between text-xs text-rose-800 font-bold animate-pulse">
+                      <span>⚠️ REOPEN SIGNAL ALERT: Citizen feedback threshold (&gt;30% &quot;Still Exists&quot;) exceeded!</span>
+                      <button
+                        onClick={handleRework}
+                        className="px-2.5 py-1 bg-rose-600 text-white rounded-md text-[11px] font-extrabold hover:bg-rose-700 transition-colors shadow-sm"
+                      >
+                        Reopen & Assign Rework
+                      </button>
+                    </div>
+                  )}
+
+                  {complaintData.communityIssue.verification && (
+                    <div className="flex items-center gap-4 text-xs text-slate-600 pt-1">
+                      <span>✅ {complaintData.communityIssue.verification.resolvedCount || 0} Citizens Verified Resolved</span>
+                      <span>❌ {complaintData.communityIssue.verification.stillExistsCount || 0} Citizens Reported Still Exists</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <h3 className="text-xl font-bold text-slate-800">{displayTitle}</h3>
               <p className="text-slate-600 text-sm leading-relaxed">
                 {displayDesc}
               </p>
+
 
               {/* AI Photo & Issue Intelligence Card for Supervisor */}
               {(complaintData?.aiAnalysis || complaintData?.aiImageAnalysis) && (
@@ -303,29 +337,167 @@ export function SupervisorComplaintDetail() {
               </motion.div>
             )}
 
-            {/* STATE: Verification */}
-            {flowState === 'verification' && (
+            {/* STATE: Verification / Pending Citizen Verification */}
+            {(flowState === 'verification' || complaintData?.status === 'Pending Citizen Verification') && (
               <motion.div key="verification" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
                 <Card className="rounded-[20px] border-slate-100 shadow-sm border-t-4 border-t-purple-500">
                   <CardHeader>
-                    <CardTitle className="text-lg font-bold text-purple-700">Supervisor Verification Required</CardTitle>
-                    <CardDescription>Worker marked this task as complete. Review the after images.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-48 bg-slate-200 mb-6 rounded-xl relative flex items-center justify-center text-slate-500">
-                      [After Image Uploaded by Worker]
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg font-bold text-purple-700">Supervisor Approval & Citizen Verification</CardTitle>
+                        <CardDescription>Worker marked this task as resolved. Review resolution evidence and trigger nearby citizen verification.</CardDescription>
+                      </div>
+                      <span className="px-3 py-1 bg-purple-100 text-purple-700 font-bold text-xs rounded-full">
+                        Pending Supervisor Approval
+                      </span>
                     </div>
-                    <div className="flex gap-4">
-                      <button onClick={handleApprove} className="flex-1 h-12 rounded-xl bg-emerald-500 text-white font-bold hover:bg-emerald-600 flex items-center justify-center gap-2">
-                        <CheckCircle2 size={20} /> Approve & Notify Citizen
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {complaintData?.afterImage ? (
+                      <div className="h-56 bg-slate-100 rounded-2xl relative overflow-hidden border border-slate-200">
+                        <img src={complaintData.afterImage} alt="Worker Resolution Evidence" className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-500 text-sm font-medium text-center">
+                        Resolution details uploaded by field agent.
+                      </div>
+                    )}
+                    <div className="flex gap-4 pt-2">
+                      <button 
+                        onClick={async () => {
+                          const targetId = complaintData?._id || id;
+                          const res = await fetch(`${API_BASE}/complaints/${targetId}/approve-resolution`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                          });
+                          if (res.ok) {
+                            alert('Resolution approved! Citizen verification notifications sent to nearby citizens.');
+                            fetchComplaintDetail();
+                          }
+                        }} 
+                        className="flex-1 h-12 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle2 size={20} /> Approve Resolution & Trigger Nearby Verification
                       </button>
-                      <button onClick={handleRework} className="flex-1 h-12 rounded-xl bg-rose-500 text-white font-bold hover:bg-rose-600 flex items-center justify-center gap-2">
+                      <button onClick={handleRework} className="h-12 px-6 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 font-bold hover:bg-rose-100 flex items-center justify-center gap-2">
                         <AlertCircle size={20} /> Request Rework
                       </button>
                     </div>
                   </CardContent>
                 </Card>
               </motion.div>
+            )}
+
+            {/* STATE: Community Reopened – Supervisor Review Required */}
+            {(complaintData?.status?.includes('Community Reopened') || complaintData?.citizenVerification?.communityReopened) && (
+              <motion.div key="community_reopened" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
+                <Card className="rounded-[20px] border-amber-200 shadow-md bg-amber-50/50 border-2">
+                  <CardHeader className="bg-amber-100/50 border-b border-amber-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-amber-500 text-white flex items-center justify-center font-black text-xl">
+                          ⚠️
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg font-bold text-amber-900">Community Reopen Alert</CardTitle>
+                          <CardDescription className="text-amber-800/80 font-medium">
+                            Citizens reported that this issue still exists after worker resolution. Supervisor review is required.
+                          </CardDescription>
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-4">
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div className="p-3 bg-white rounded-xl border border-amber-200">
+                        <span className="block text-xs text-amber-700 font-bold uppercase">Citizens Notified</span>
+                        <span className="text-2xl font-black text-slate-800">{complaintData?.citizenVerification?.citizensNotified || 0}</span>
+                      </div>
+                      <div className="p-3 bg-white rounded-xl border border-emerald-200">
+                        <span className="block text-xs text-emerald-600 font-bold uppercase">✅ Resolved</span>
+                        <span className="text-2xl font-black text-emerald-600">{complaintData?.citizenVerification?.yesCount || 0}</span>
+                      </div>
+                      <div className="p-3 bg-white rounded-xl border border-rose-200">
+                        <span className="block text-xs text-rose-600 font-bold uppercase">❌ Still Exists</span>
+                        <span className="text-2xl font-black text-rose-600">{complaintData?.citizenVerification?.stillExistsCount || 0}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-4 pt-2">
+                      <button 
+                        onClick={async () => {
+                          const targetId = complaintData?._id || id;
+                          const res = await fetch(`${API_BASE}/complaints/${targetId}/reopen-review`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ action: 'REWORK', supervisorNotes: 'Assigned rework based on community feedback.' })
+                          });
+                          if (res.ok) {
+                            alert('Complaint reassigned for rework.');
+                            fetchComplaintDetail();
+                          }
+                        }} 
+                        className="flex-1 h-12 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700 transition-colors shadow-md flex items-center justify-center gap-2"
+                      >
+                        <RefreshCw size={18} /> Reassign Rework to Worker
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          const targetId = complaintData?._id || id;
+                          const res = await fetch(`${API_BASE}/complaints/${targetId}/reopen-review`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ action: 'CLOSE', supervisorNotes: 'Verified resolved after supervisor inspection.' })
+                          });
+                          if (res.ok) {
+                            alert('Complaint closed by supervisor.');
+                            fetchComplaintDetail();
+                          }
+                        }} 
+                        className="h-12 px-6 rounded-xl bg-slate-800 text-white font-bold hover:bg-slate-900 transition-colors"
+                      >
+                        Force Close Issue
+                      </button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {/* Citizen Verification Telemetry Card */}
+            {complaintData?.citizenVerification && (
+              <Card className="rounded-[20px] border-slate-100 shadow-sm mt-6">
+                <CardHeader>
+                  <CardTitle className="text-lg font-bold text-slate-800 flex items-center justify-between">
+                    <span>Citizen Verification Results</span>
+                    <span className="text-xs px-3 py-1 bg-purple-100 text-purple-700 rounded-full font-bold">
+                      {complaintData.citizenVerification.verificationStatus || 'IN_VERIFICATION'}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <span className="text-xs text-slate-500 font-bold uppercase block mb-1">👥 Notified</span>
+                      <span className="text-2xl font-black text-slate-800">{complaintData.citizenVerification.citizensNotified || 0}</span>
+                    </div>
+                    <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                      <span className="text-xs text-emerald-700 font-bold uppercase block mb-1">✅ Resolved</span>
+                      <span className="text-2xl font-black text-emerald-600">{complaintData.citizenVerification.yesCount || 0}</span>
+                    </div>
+                    <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100">
+                      <span className="text-xs text-rose-700 font-bold uppercase block mb-1">❌ Still Exists</span>
+                      <span className="text-2xl font-black text-rose-600">{complaintData.citizenVerification.stillExistsCount || 0}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             )}
 
             {/* STATE: Approved */}
@@ -339,7 +511,7 @@ export function SupervisorComplaintDetail() {
                     <div>
                       <h3 className="text-xl font-bold text-slate-800">Task Approved</h3>
                       <p className="text-slate-500 mt-2">
-                        Citizen has been notified for final verification. Once satisfied, the ticket will be CLOSED.
+                        Citizen verification active. Feedback is being aggregated.
                       </p>
                     </div>
                   </CardContent>

@@ -45,6 +45,9 @@ export function CitizenDashboard() {
   const [statsData, setStatsData] = useState<any[]>([]);
   const [recentComplaintsData, setRecentComplaintsData] = useState<any[]>([]);
   const [announcementsData, setAnnouncementsData] = useState<any[]>([]);
+  const [impactData, setImpactData] = useState<any | null>(null);
+  const [impactError, setImpactError] = useState<string | null>(null);
+  const [showImpactBreakdownModal, setShowImpactBreakdownModal] = useState(false);
   const [allIssuedComplaints, setAllIssuedComplaints] = useState<any[]>([]);
   const [showAllComplaintsModal, setShowAllComplaintsModal] = useState(false);
   const [isLoadingAllComplaints, setIsLoadingAllComplaints] = useState(false);
@@ -67,9 +70,15 @@ export function CitizenDashboard() {
           setStatsData(data.stats.map((s: any) => ({ ...s, icon: iconMap[s.icon] || FileText })));
           setRecentComplaintsData(data.recentComplaints);
           setAnnouncementsData(data.announcements.map((a: any) => ({ ...a, icon: iconMap[a.icon] || Bell })));
+          if (data.impact) {
+            setImpactData(data.impact);
+          }
+        } else {
+          setImpactError("Unable to load your civic impact right now.");
         }
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
+        setImpactError("Unable to load your civic impact right now.");
       } finally {
         setIsLoading(false);
       }
@@ -96,7 +105,17 @@ export function CitizenDashboard() {
   };
 
   if (isLoading) {
-    return <div className="flex justify-center items-center h-64 text-slate-500 font-medium">Loading dashboard...</div>;
+    return (
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
+        <div className="h-8 w-64 bg-slate-200 rounded-lg animate-pulse"></div>
+        <div className="h-32 bg-slate-100 rounded-2xl animate-pulse"></div>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="h-24 bg-slate-100 rounded-xl animate-pulse"></div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -135,6 +154,102 @@ export function CitizenDashboard() {
         </div>
       </div>
 
+      {/* 🌆 My Civic Impact Section */}
+      <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-teal-950 text-white rounded-[24px] p-6 lg:p-8 shadow-xl border border-teal-500/20 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-700/60">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🌆</span>
+              <h3 className="text-2xl font-bold tracking-tight text-white">My Civic Impact</h3>
+            </div>
+            <p className="text-slate-300 text-sm mt-1">
+              {impactData?.message || "You are helping improve your city through active participation."}
+            </p>
+          </div>
+          {impactData && (
+            <span className="self-start md:self-auto px-4 py-1.5 rounded-full text-xs font-bold bg-teal-500/20 text-teal-300 border border-teal-400/40 shadow-sm">
+              {impactData.civicStatus}
+            </span>
+          )}
+        </div>
+
+        {impactError ? (
+          <div className="py-6 text-rose-300 text-sm flex items-center gap-2">
+            <AlertTriangle size={16} /> {impactError}
+          </div>
+        ) : !impactData ? (
+          <div className="py-6 text-slate-400 text-sm">Loading your civic impact...</div>
+        ) : (
+          <div className="pt-6 space-y-6">
+            {/* Real Stats Cards Grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 space-y-1">
+                <div className="text-xs text-slate-400 font-semibold flex items-center gap-1.5">
+                  <span>📢</span> Issues Reported
+                </div>
+                <div className="text-3xl font-extrabold text-white">{impactData.issuesReported}</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 space-y-1">
+                <div className="text-xs text-slate-400 font-semibold flex items-center gap-1.5">
+                  <span>✅</span> Issues Resolved
+                </div>
+                <div className="text-3xl font-extrabold text-emerald-400">{impactData.issuesResolved}</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 space-y-1">
+                <div className="text-xs text-slate-400 font-semibold flex items-center gap-1.5">
+                  <span>👥</span> Community Issues Verified
+                </div>
+                <div className="text-3xl font-extrabold text-teal-300">{impactData.communityIssuesVerified}</div>
+              </div>
+
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 space-y-1">
+                <div className="text-xs text-slate-400 font-semibold flex items-center gap-1.5">
+                  <span>🤝</span> Community Contributions
+                </div>
+                <div className="text-3xl font-extrabold text-amber-400">{impactData.communityContributions}</div>
+              </div>
+            </div>
+
+            {/* Score Bar & Action */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pt-2">
+              <div className="flex-1 space-y-2 max-w-xl">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                  <span>Civic Impact Score</span>
+                  <span className="text-teal-300 font-mono text-sm">{impactData.civicImpactScore}%</span>
+                </div>
+                <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700/60 p-0.5">
+                  <div 
+                    className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 rounded-full transition-all duration-700"
+                    style={{ width: `${impactData.civicImpactScore}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {impactData.issuesReported === 0 && (
+                  <Link
+                    to="/citizen/raise-complaint"
+                    className="px-4 py-2 text-xs font-bold bg-teal-500 hover:bg-teal-600 text-slate-950 rounded-xl transition-colors shadow-md"
+                  >
+                    Report an Issue
+                  </Link>
+                )}
+                <button
+                  onClick={() => setShowImpactBreakdownModal(true)}
+                  className="px-4 py-2 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 transition-colors shadow-sm"
+                >
+                  View Impact Breakdown
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Statistics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {statsData.map((stat) => (
@@ -170,7 +285,7 @@ export function CitizenDashboard() {
                 >
                   Browse All City Issues
                 </button>
-                <Link to="/citizen/complaints" className="text-sm font-semibold text-[#3E766D] hover:underline">View My All</Link>
+                <Link to="/citizen/my-complaints" className="text-sm font-semibold text-[#3E766D] hover:underline">View My All</Link>
               </div>
             </div>
             
@@ -188,9 +303,13 @@ export function CitizenDashboard() {
                   {recentComplaintsData.length > 0 ? recentComplaintsData.map((complaint) => {
                     const progress = complaint.status === 'Resolved' ? 100 : complaint.status === 'Working' ? 60 : complaint.status === 'Assigned' ? 30 : 10;
                     return (
-                    <tr key={complaint._id || complaint.id} className="hover:bg-slate-50/50 transition-colors group cursor-pointer">
+                    <tr 
+                      key={complaint._id || complaint.id} 
+                      onClick={() => window.location.href = `/citizen/complaint/${complaint._id || complaint.id}`}
+                      className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
+                    >
                       <td className="py-4 pr-4">
-                        <p className="font-bold text-slate-800 text-[15px]">{complaint.title}</p>
+                        <p className="font-bold text-slate-800 text-[15px] group-hover:text-[#3E766D] transition-colors">{complaint.title}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-xs font-medium text-slate-400">
                             #{complaint._id ? complaint._id.substring(complaint._id.length - 6).toUpperCase() : complaint.id}
@@ -345,7 +464,11 @@ export function CitizenDashboard() {
               <div className="overflow-y-auto flex-1 pr-2 space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   {allIssuedComplaints.map((item: any) => (
-                    <div key={item._id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-2">
+                    <div 
+                      key={item._id} 
+                      onClick={() => window.location.href = `/citizen/complaint/${item._id}`}
+                      className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-100/80 cursor-pointer transition-colors space-y-2 group"
+                    >
                       <div className="flex justify-between items-start gap-2">
                         <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700">
                           {item.category || 'General'}
@@ -354,7 +477,7 @@ export function CitizenDashboard() {
                           {item.status}
                         </span>
                       </div>
-                      <h4 className="font-extrabold text-slate-800 text-sm">{item.title}</h4>
+                      <h4 className="font-extrabold text-slate-800 text-sm group-hover:text-[#3E766D] transition-colors">{item.title}</h4>
                       <p className="text-xs text-slate-500 line-clamp-2">{item.description}</p>
                       <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-200/50">
                         <span>Issued by: {item.citizenId?.fullName || 'Citizen'}</span>
@@ -369,6 +492,80 @@ export function CitizenDashboard() {
         </div>
       )}
 
+      {/* IMPACT BREAKDOWN MODAL */}
+      {showImpactBreakdownModal && impactData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 lg:p-8 w-full max-w-md shadow-2xl text-slate-100 relative space-y-6"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-xl font-bold text-teal-400 flex items-center gap-2">
+                  <span>📊</span> Impact Breakdown
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">Detailed calculation of your civic contributions</p>
+              </div>
+              <button 
+                onClick={() => setShowImpactBreakdownModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3.5 divide-y divide-slate-800/80">
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <span>📢</span> Issues Reported
+                </span>
+                <span className="text-base font-bold text-white font-mono">{impactData.issuesReported}</span>
+              </div>
+
+              <div className="flex items-center justify-between pt-3">
+                <span className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <span>✅</span> Issues Resolved
+                </span>
+                <span className="text-base font-bold text-emerald-400 font-mono">{impactData.issuesResolved}</span>
+              </div>
+
+              <div className="flex items-center justify-between pt-3">
+                <span className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <span>👥</span> Community Issues Verified
+                </span>
+                <span className="text-base font-bold text-teal-300 font-mono">{impactData.communityIssuesVerified}</span>
+              </div>
+
+              <div className="flex items-center justify-between pt-3">
+                <span className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <span>🤝</span> Community Contributions
+                </span>
+                <span className="text-base font-bold text-amber-400 font-mono">{impactData.communityContributions}</span>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 text-base">
+                <span className="font-bold text-slate-200 flex items-center gap-2">
+                  <span>📊</span> Civic Impact Score
+                </span>
+                <span className="font-extrabold text-teal-300 font-mono">{impactData.civicImpactScore}%</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs text-slate-300 space-y-1">
+              <div className="font-semibold text-teal-300">Status: {impactData.civicStatus}</div>
+              <p className="text-[11px] text-slate-400">{impactData.message}</p>
+            </div>
+
+            <button
+              onClick={() => setShowImpactBreakdownModal(false)}
+              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
+            >
+              Close Breakdown
+            </button>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 }

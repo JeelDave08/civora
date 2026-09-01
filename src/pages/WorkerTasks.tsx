@@ -33,9 +33,16 @@ export function WorkerTasks() {
         const allComps = data.complaints || [];
         const assignedComps = allComps.filter((c: any) => {
           if (!c.workerId) return false;
-          const wId = typeof c.workerId === 'object' ? (c.workerId._id || c.workerId.id) : c.workerId;
+          const wId = (typeof c.workerId === 'object' ? (c.workerId._id || c.workerId.id) : c.workerId)?.toString();
           const wEmail = typeof c.workerId === 'object' ? c.workerId.email : null;
-          return wId === user?.id || (wEmail && user?.email && wEmail.toLowerCase() === user.email.toLowerCase());
+          
+          const currentUserId = (user?.id || (user as any)?._id)?.toString();
+          const currentUserEmail = user?.email?.toLowerCase();
+
+          const matchesId = Boolean(wId && currentUserId && wId === currentUserId);
+          const matchesEmail = Boolean(wEmail && currentUserEmail && wEmail.toLowerCase() === currentUserEmail);
+
+          return matchesId || matchesEmail;
         });
         setTasks(assignedComps);
       }

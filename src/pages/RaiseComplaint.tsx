@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { useAuth } from "../context/AuthContext"
-import { MapPin, Camera, Video, Upload, CheckCircle, ArrowRight, ArrowLeft, Navigation, X, RefreshCw, Loader2, Search, Target, Sparkles, AlertTriangle, Edit3, ShieldAlert } from "lucide-react"
+import { MapPin, Camera, Video, Upload, CheckCircle, ArrowRight, ArrowLeft, Navigation, X, RefreshCw, Loader2, Search, Target, Sparkles, AlertTriangle, Edit3, ShieldAlert, Users, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Card, CardContent } from "@/components/ui/Card"
@@ -327,32 +327,56 @@ export function RaiseComplaint() {
     }))
   }
 
-  // Reverse Geocode (lat/lng -> address string)
+  // Reverse Geocode (lat/lng -> address string) via Backend LocationIQ Proxy
   const fetchAddressFromCoords = async (lat: number, lng: number) => {
+    if (import.meta.env.DEV) {
+      console.log(`[GPS] latitude: ${lat}, longitude: ${lng}`);
+    }
+    setIsDetectingLocation(true);
+    setFormData(prev => ({ ...prev, location: "📍 Detecting location..." }));
+
     try {
-      const apiUrl = import.meta.env.VITE_GEOCODE_API_URL || "https://us1.locationiq.com/v1/reverse"
-      const apiKey = import.meta.env.VITE_GEOCODE_API_KEY || "pk.0c9741909440306217e5f3b924862636"
-      const response = await fetch(`${apiUrl}?key=${apiKey}&lat=${lat}&lon=${lng}&format=json`)
+      const response = await fetch(`http://localhost:5000/api/citizen/reverse-geocode?lat=${lat}&lng=${lng}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
       if (response.ok) {
-        const data = await response.json()
-        if (data.display_name) {
-          setFormData(prev => ({ ...prev, location: data.display_name, lat, lng }))
-          return
+        const data = await response.json();
+        if (data.success && data.address) {
+          setFormData(prev => ({ ...prev, location: data.address, lat, lng }));
+          return;
         }
       }
-      // Fallback reverse geocoding via Nominatim
-      const nomRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
-      if (nomRes.ok) {
-        const nomData = await nomRes.json()
-        if (nomData.display_name) {
-          setFormData(prev => ({ ...prev, location: nomData.display_name, lat, lng }))
-          return
-        }
+
+      // Direct fallback if backend proxy returns non-ok
+      const apiUrl = import.meta.env.VITE_GEOCODE_API_URL || "https://us1.locationiq.com/v1/reverse";
+      const apiKey = import.meta.env.VITE_GEOCODE_API_KEY || "pk.0c9741909440306217e5f3b924862636";
+      const directRes = await fetch(`${apiUrl}?key=${apiKey}&lat=${lat}&lon=${lng}&format=json`);
+      if (directRes.ok) {
+        const data = await directRes.json();
+        const addr = data.address || {};
+        const road = addr.road || addr.street || addr.pedestrian || addr.footway || "";
+        const neighbourhood = addr.neighbourhood || addr.suburb || addr.residential || addr.locality || "";
+        const city = addr.city || addr.town || addr.village || addr.municipality || addr.state_district || "";
+        const state = addr.state || "";
+
+        let formatted = "";
+        if (road && neighbourhood && city) formatted = `${road}, ${neighbourhood}, ${city}`;
+        else if (road && city) formatted = `${road}, ${city}`;
+        else if (neighbourhood && city) formatted = `${neighbourhood}, ${city}`;
+        else if (city && state) formatted = `${city}, ${state}`;
+        else formatted = data.display_name || `📍 GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+        setFormData(prev => ({ ...prev, location: formatted, lat, lng }));
+        return;
       }
-      setFormData(prev => ({ ...prev, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, lat, lng }))
+
+      setFormData(prev => ({ ...prev, location: `📍 GPS detected: ${lat.toFixed(4)}, ${lng.toFixed(4)}`, lat, lng }));
     } catch (err) {
-      console.error("Reverse geocoding error:", err)
-      setFormData(prev => ({ ...prev, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, lat, lng }))
+      console.error("Reverse geocoding error:", err);
+      setFormData(prev => ({ ...prev, location: `📍 GPS detected: ${lat.toFixed(4)}, ${lng.toFixed(4)}`, lat, lng }));
+    } finally {
+      setIsDetectingLocation(false);
     }
   }
 
@@ -435,12 +459,12 @@ export function RaiseComplaint() {
   const canProceedStep2 = !!formData.description.trim()
   const canSubmitStep3 = !!formData.location.trim()
 
-  const handleSubmit = async () => {
-    if (!canSubmitStep3) {
-      alert("Please enter or detect your exact location before submitting.")
-      return
-    }
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false)
+  const [duplicateCandidates, setDuplicateCandidates] = useState<any[]>([])
+  const [isJoiningDuplicate, setIsJoiningDuplicate] = useState(false)
 
+  // Direct submission without duplicate prompt
+  const createComplaintDoc = async () => {
     setIsSubmitting(true)
     try {
       const res = await fetch("http://localhost:5000/api/citizen/complaints", {
@@ -489,8 +513,102 @@ export function RaiseComplaint() {
     }
   }
 
+  // Submit trigger - performs duplicate check first
+  const handleSubmit = async () => {
+    if (!canSubmitStep3) {
+      alert("Please enter or detect your exact location before submitting.")
+      return
+    }
+
+    setIsSubmitting(true)
+
+    // Call Duplicate Check API
+    try {
+      console.log("[DUPLICATE CHECK] Starting duplicate detection for:", formData.category, formData.location)
+      const checkRes = await fetch("http://localhost:5000/api/citizen/complaints/check-duplicates", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: `${formData.category} Issue at ${formData.location}`,
+          description: formData.description,
+          category: formData.category,
+          priority: formData.priority,
+          lat: formData.lat || 23.0225,
+          lng: formData.lng || 72.5714,
+          imageUrl: formData.images[0] || "",
+          images: formData.images,
+          location: {
+            address: formData.location,
+            lat: formData.lat || 23.0225,
+            lng: formData.lng || 72.5714
+          }
+        })
+
+      })
+
+      console.log("[DUPLICATE CHECK] Response status:", checkRes.status)
+
+      if (checkRes.ok) {
+        const checkData = await checkRes.json()
+        console.log("[DUPLICATE CHECK] Response data:", checkData)
+        if (checkData.duplicates && checkData.duplicates.length > 0) {
+          console.log("[DUPLICATE CHECK] Found duplicate candidates, displaying warning modal!")
+          setDuplicateCandidates(checkData.duplicates)
+          setShowDuplicateModal(true)
+          setIsSubmitting(false)
+          return
+        }
+      } else {
+        const errData = await checkRes.json()
+        console.error("[DUPLICATE CHECK ERROR] Backend error:", checkRes.status, errData)
+      }
+    } catch (checkErr) {
+      console.error("[DUPLICATE CHECK ERROR] Network error:", checkErr)
+    }
+
+    // No duplicates found -> create new complaint
+    console.log("[COMPLAINT CREATE] Creating new complaint")
+    await createComplaintDoc()
+
+  }
+
+  // Join Existing Issue Handler
+  const handleJoinExistingIssue = async (candidateRawId: string) => {
+    setIsJoiningDuplicate(true)
+    try {
+      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${candidateRawId}/join`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          comment: formData.description,
+          evidenceImages: formData.images
+        })
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        setShowDuplicateModal(false)
+        setComplaintId(candidateRawId.substring(candidateRawId.length - 6).toUpperCase())
+        handleNext()
+      } else {
+        alert(data.message || "Failed to join community issue.")
+      }
+    } catch (err: any) {
+      alert("Error joining community issue: " + err.message)
+    } finally {
+      setIsJoiningDuplicate(false)
+    }
+  }
+
   const handleNext = () => setStep(s => Math.min(s + 1, 4))
   const handlePrev = () => setStep(s => Math.max(s - 1, 1))
+
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -951,6 +1069,107 @@ export function RaiseComplaint() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Similar Issue / Duplicate Warning Modal */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-xl w-full p-6 space-y-6 shadow-2xl overflow-hidden relative text-slate-100">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                  <ShieldAlert size={26} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-amber-400 flex items-center gap-2">
+                    ⚠️ Similar Issue Found Nearby
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-1">
+                    A matching issue has already been reported nearby. You can join it to speed up resolution!
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowDuplicateModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Candidates list */}
+            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+              {duplicateCandidates.map((dup, i) => (
+                <div 
+                  key={i}
+                  className="p-4 rounded-2xl border border-emerald-500/30 bg-slate-800/90 space-y-3 relative shadow-inner"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-md">
+                        {dup.complaintId}
+                      </span>
+                      <h4 className="text-base font-bold text-emerald-400 mt-1.5">{dup.title}</h4>
+                      <p className="text-xs text-slate-300 mt-1 flex items-center gap-1">
+                        📍 {dup.locationAddress} <span className="text-slate-400 font-mono">({dup.distanceMeters}m away)</span>
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shadow-sm">
+                        ⚡ {dup.similarityScore}% Match
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-700/80">
+                    <span className="flex items-center gap-1.5 font-semibold text-teal-300">
+                      <Users size={14} className="text-teal-400" /> {dup.supporterCount} Citizens Affected
+                    </span>
+
+                    <div className="flex gap-2.5 items-center">
+                      <a
+                        href={`/citizen/complaint/${dup.rawId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-teal-300 font-medium transition-colors"
+                      >
+                        <ExternalLink size={12} /> View Details
+                      </a>
+                      <Button
+                        size="sm"
+                        onClick={() => handleJoinExistingIssue(dup.rawId)}
+                        disabled={isJoiningDuplicate}
+                        className="h-8 text-xs bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold gap-1.5 px-3.5 shadow-md"
+                      >
+                        {isJoiningDuplicate ? <Loader2 size={12} className="animate-spin" /> : <Users size={12} />}
+                        👥 Join Existing Issue
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Actions: Join or Report New */}
+            <div className="pt-3 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">
+                Joining consolidates tasks so workers resolve the issue faster.
+              </span>
+
+              <div className="flex gap-2 w-full sm:w-auto justify-end">
+                <Button
+                  variant="outline"
+                  onClick={createComplaintDoc}
+                  disabled={isSubmitting}
+                  className="w-full sm:w-auto text-xs border-slate-700 bg-slate-800/80 text-slate-200 hover:bg-slate-700 hover:text-white"
+                >
+                  ➕ Report New Issue Anyway
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

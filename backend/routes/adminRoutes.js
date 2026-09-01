@@ -7,11 +7,18 @@ const { adminProtect } = require('../middleware/adminMiddleware');
 // Models
 const Admin = require('../models/Admin');
 const User = require('../models/User');
+const Supervisor = require('../models/Supervisor');
+const FieldWorker = require('../models/FieldWorker');
 const Complaint = require('../models/Complaint');
 const Announcement = require('../models/Announcement');
 const ActivityLog = require('../models/ActivityLog');
 const Feedback = require('../models/FeedbackModel');
 const Department = require('../models/Department');
+const CitizenVerification = require('../models/CitizenVerification');
+const CitizenResponse = require('../models/CitizenResponse');
+const Notification = require('../models/Notification');
+const CommunityReopenEvent = require('../models/CommunityReopenEvent');
+const SystemSetting = require('../models/SystemSetting');
 
 // ==========================================
 // DASHBOARD
@@ -130,12 +137,23 @@ router.get('/complaints', adminProtect, async (req, res) => {
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const complaints = await Complaint.find(filter)
+    const rawComplaints = await Complaint.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
       .populate('citizenId', 'fullName email')
-      .populate('workerId', 'fullName email');
+      .lean();
+
+    const complaints = await Promise.all(rawComplaints.map(async (c) => {
+      if (c.workerId) {
+        let worker = await User.findById(c.workerId).select('_id fullName email department city role').lean();
+        if (!worker) {
+          worker = await FieldWorker.findById(c.workerId).select('_id fullName email department city role').lean();
+        }
+        return { ...c, workerId: worker || c.workerId };
+      }
+      return c;
+    }));
 
     const total = await Complaint.countDocuments(filter);
 
@@ -189,8 +207,14 @@ router.put('/complaints/:id/assign', adminProtect, async (req, res) => {
 // PUT /api/admin/complaints/:id/status — Update complaint status & progress details & timer tracking
 router.put('/complaints/:id/status', adminProtect, async (req, res) => {
   try {
-    const { status, remarks, beforeImage, afterImage, isTimerRunning, timeSpentSeconds, actionType } = req.body;
+    let { status, remarks, beforeImage, afterImage, isTimerRunning, timeSpentSeconds, actionType } = req.body;
     const updateData = {};
+
+    // Requirement #1: Worker marks complaint as "Issue Resolved" -> status changes to "Pending Citizen Verification"
+    if (status === 'Resolved') {
+      status = 'Pending Citizen Verification';
+    }
+
     if (status) updateData.status = status;
     if (remarks !== undefined) updateData.remarks = remarks;
     if (beforeImage !== undefined) updateData.beforeImage = beforeImage;
@@ -207,6 +231,10 @@ router.put('/complaints/:id/status', adminProtect, async (req, res) => {
       updateData.isTimerRunning = false;
     }
 
+    if (status === 'Pending Citizen Verification') {
+      updateData['citizenVerification.verificationStatus'] = 'PENDING_SUPERVISOR';
+    }
+
     const complaint = await Complaint.findByIdAndUpdate(
       req.params.id,
       updateData,
@@ -214,11 +242,39 @@ router.put('/complaints/:id/status', adminProtect, async (req, res) => {
     );
     if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
 
+    // Initialize or update CitizenVerification session if status is Pending Citizen Verification
+    if (status === 'Pending Citizen Verification') {
+      let cv = await CitizenVerification.findOne({ complaintId: complaint._id });
+      if (!cv) {
+        cv = new CitizenVerification({
+          complaintId: complaint._id,
+          status: 'PENDING_SUPERVISOR',
+          history: [{
+            action: 'WORKER_RESOLVED',
+            actorRole: 'worker',
+            actorName: req.user ? req.user.fullName : 'Field Agent',
+            details: remarks || 'Worker marked issue as resolved. Awaiting supervisor approval.',
+            timestamp: new Date()
+          }]
+        });
+      } else {
+        cv.status = 'PENDING_SUPERVISOR';
+        cv.history.push({
+          action: 'WORKER_RESOLVED',
+          actorRole: 'worker',
+          actorName: req.user ? req.user.fullName : 'Field Agent',
+          details: remarks || 'Worker updated resolution evidence.',
+          timestamp: new Date()
+        });
+      }
+      await cv.save();
+    }
+
     try {
       await new ActivityLog({
         adminId: req.admin ? req.admin._id : undefined,
         actorRole: req.user ? req.user.role : 'admin',
-        actorName: req.admin ? req.admin.fullName : (req.user ? req.user.role : 'User'),
+        actorName: req.admin ? req.admin.fullName : (req.user ? req.user.fullName : 'User'),
         action: 'UPDATE_COMPLAINT_STATUS',
         details: `Updated complaint "${complaint.title}" status to ${status || complaint.status}`,
         targetType: 'Complaint',
@@ -231,13 +287,632 @@ router.put('/complaints/:id/status', adminProtect, async (req, res) => {
 
     res.json(complaint);
   } catch (err) {
+    console.error('Error updating status:', err);
     res.status(500).json({ message: 'Server error updating complaint status' });
+  }
+});
+
+// POST /api/admin/complaints/:id/approve-resolution — Supervisor approves worker resolution & triggers nearby citizen verification
+router.post('/complaints/:id/approve-resolution', adminProtect, async (req, res) => {
+  try {
+    const complaint = await Complaint.findById(req.params.id);
+    if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
+
+    complaint.status = 'Pending Citizen Verification';
+    if (!complaint.citizenVerification) complaint.citizenVerification = {};
+    complaint.citizenVerification.verificationStatus = 'IN_VERIFICATION';
+    complaint.citizenVerification.approvedBySupervisorAt = new Date();
+
+    // Fetch configurable verification radius from SystemSetting (default 5km)
+    let radiusSetting = await SystemSetting.findOne({ key: 'verification_radius_km' });
+    const radiusKm = radiusSetting ? parseFloat(radiusSetting.value) : 5;
+
+    // Find citizens near complaint location
+    const compLat = complaint.location?.lat || 23.0225;
+    const compLng = complaint.location?.lng || 72.5714;
+
+    const allCitizens = await User.find({ role: 'citizen' }).select('_id fullName email');
+    
+    // Filter citizens by radius if distance function applies, fallback to active citizens
+    const notifiedCitizenIds = [];
+    const notificationDocs = [];
+
+    allCitizens.forEach(citizen => {
+      notifiedCitizenIds.push(citizen._id);
+      notificationDocs.push({
+        recipientId: citizen._id,
+        recipientRole: 'citizen',
+        type: 'VERIFICATION_REQUEST',
+        title: 'Was this issue actually resolved?',
+        message: `Field team reported resolution for Garbage/Dumping complaint #${String(complaint._id).slice(-4).toUpperCase()} ('${complaint.title}'). Please verify if the issue is fixed.`,
+        complaintId: complaint._id,
+        actionData: {
+          options: ['YES_RESOLVED', 'STILL_EXISTS']
+        }
+      });
+    });
+
+    if (notificationDocs.length > 0) {
+      await Notification.insertMany(notificationDocs);
+    }
+
+    complaint.citizenVerification.citizensNotified = notificationDocs.length;
+    await complaint.save();
+
+    // Update CitizenVerification session
+    let cv = await CitizenVerification.findOne({ complaintId: complaint._id });
+    if (!cv) {
+      cv = new CitizenVerification({
+        complaintId: complaint._id,
+        status: 'IN_VERIFICATION',
+        supervisorApprovedAt: new Date(),
+        supervisorId: req.user ? req.user._id : (req.admin ? req.admin._id : undefined),
+        citizensNotifiedCount: notificationDocs.length,
+        history: []
+      });
+    } else {
+      cv.status = 'IN_VERIFICATION';
+      cv.supervisorApprovedAt = new Date();
+      cv.supervisorId = req.user ? req.user._id : (req.admin ? req.admin._id : undefined);
+      cv.citizensNotifiedCount = notificationDocs.length;
+    }
+
+    cv.history.push({
+      action: 'SUPERVISOR_APPROVED',
+      actorId: req.user ? req.user._id : (req.admin ? req.admin._id : undefined),
+      actorRole: req.user ? req.user.role : 'supervisor',
+      actorName: req.user ? req.user.fullName : 'Supervisor',
+      details: `Supervisor approved worker resolution and dispatched verification requests to ${notificationDocs.length} nearby citizens.`,
+      timestamp: new Date()
+    });
+
+    await cv.save();
+
+    try {
+      await new ActivityLog({
+        adminId: req.admin ? req.admin._id : undefined,
+        actorRole: req.user ? req.user.role : 'supervisor',
+        actorName: req.user ? req.user.fullName : 'Supervisor',
+        action: 'SUPERVISOR_APPROVE_RESOLUTION',
+        details: `Approved resolution for complaint #${String(complaint._id).slice(-4).toUpperCase()} and triggered citizen verification (${notificationDocs.length} notified)`,
+        targetType: 'Complaint',
+        targetId: complaint._id,
+        ipAddress: req.ip
+      }).save();
+    } catch (logErr) {
+      console.warn('ActivityLog skipped:', logErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Supervisor approved resolution. Verification request sent to ${notificationDocs.length} citizens.`,
+      complaint,
+      verification: cv
+    });
+  } catch (err) {
+    console.error('Approve resolution error:', err);
+    res.status(500).json({ message: 'Server error approving resolution: ' + err.message });
+  }
+});
+
+// GET /api/admin/verification/dashboard — Supervisor Citizen Verification section statistics & list
+router.get('/verification/dashboard', adminProtect, async (req, res) => {
+  try {
+    const allVerifications = await CitizenVerification.find()
+      .populate('complaintId')
+      .sort({ updatedAt: -1 });
+
+    const complaintsAwaitingVerification = await Complaint.find({
+      status: { $in: ['Pending Citizen Verification', 'Community Reopened – Supervisor Review Required', 'Community Reopened'] }
+    }).populate('workerId', 'fullName email department').populate('citizenId', 'fullName');
+
+    let totalAwaiting = 0;
+    let totalYes = 0;
+    let totalStillExists = 0;
+    let totalReopened = 0;
+    let totalNotified = 0;
+    let totalResponded = 0;
+
+    const historyList = await Promise.all(allVerifications.map(async (cv) => {
+      const comp = cv.complaintId || await Complaint.findById(cv.complaintId);
+      const yes = cv.yesCount || comp?.citizenVerification?.yesCount || 0;
+      const no = cv.stillExistsCount || comp?.citizenVerification?.stillExistsCount || 0;
+      const notified = cv.citizensNotifiedCount || comp?.citizenVerification?.citizensNotified || 0;
+
+      if (cv.status === 'IN_VERIFICATION' || cv.status === 'PENDING_SUPERVISOR') totalAwaiting++;
+      if (cv.status === 'COMMUNITY_REOPENED' || comp?.status?.includes('Community Reopened')) totalReopened++;
+      totalYes += yes;
+      totalStillExists += no;
+      totalNotified += notified;
+      totalResponded += (yes + no);
+
+      return {
+        id: cv._id,
+        complaintId: comp?._id,
+        complaintCode: comp ? `#CMP-${String(comp._id).slice(-4).toUpperCase()}` : '#CMP-UNKNOWN',
+        title: comp?.title || 'Civic Issue',
+        category: comp?.category || 'General',
+        status: comp?.status || cv.status,
+        verificationStatus: cv.status,
+        notifiedCount: notified,
+        yesCount: yes,
+        stillExistsCount: no,
+        responseRate: notified > 0 ? Math.round(((yes + no) / notified) * 100) : 0,
+        createdAt: cv.createdAt,
+        updatedAt: cv.updatedAt,
+        history: cv.history || []
+      };
+    }));
+
+    const responsePercentage = totalNotified > 0 ? Math.round((totalResponded / totalNotified) * 100) : 0;
+
+    res.json({
+      metrics: {
+        totalAwaitingVerification: totalAwaiting,
+        yesResolvedCount: totalYes,
+        stillExistsCount: totalStillExists,
+        communityReopenedCount: totalReopened,
+        citizenResponsePercentage: responsePercentage,
+        totalNotified: totalNotified,
+        totalResponded: totalResponded
+      },
+      verificationHistory: historyList,
+      pendingComplaints: complaintsAwaitingVerification
+    });
+  } catch (err) {
+    console.error('Error fetching verification dashboard data:', err);
+    res.status(500).json({ message: 'Server error fetching verification telemetry: ' + err.message });
+  }
+});
+
+// POST /api/admin/complaints/:id/reopen-review — Supervisor takes action on Community Reopened complaint
+router.post('/complaints/:id/reopen-review', adminProtect, async (req, res) => {
+  try {
+    const { action, supervisorNotes, workerId } = req.body; // action: 'REWORK' | 'CLOSE'
+    const complaint = await Complaint.findById(req.params.id);
+    if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
+
+    if (action === 'REWORK') {
+      complaint.status = 'Assigned';
+      if (workerId) complaint.workerId = workerId;
+      complaint.progress = 0;
+      if (complaint.citizenVerification) {
+        complaint.citizenVerification.verificationStatus = 'PENDING_SUPERVISOR';
+        complaint.citizenVerification.communityReopened = false;
+      }
+
+      await CommunityReopenEvent.findOneAndUpdate(
+        { complaintId: complaint._id },
+        {
+          status: 'REWORK_ASSIGNED',
+          supervisorId: req.user ? req.user._id : (req.admin ? req.admin._id : undefined),
+          supervisorNotes: supervisorNotes || 'Assigned rework to field agent based on community feedback.',
+          actionTaken: 'Assigned Rework'
+        },
+        { sort: { reopenedAt: -1 } }
+      );
+    } else if (action === 'CLOSE') {
+      complaint.status = 'Closed';
+      if (complaint.citizenVerification) {
+        complaint.citizenVerification.verificationStatus = 'VERIFIED_CLOSED';
+      }
+
+      await CitizenVerification.findOneAndUpdate(
+        { complaintId: complaint._id },
+        { status: 'VERIFIED_CLOSED' }
+      );
+    }
+
+    await complaint.save();
+
+    res.json({
+      success: true,
+      message: `Supervisor action '${action}' completed for complaint #${String(complaint._id).slice(-4).toUpperCase()}`,
+      complaint
+    });
+  } catch (err) {
+    console.error('Error handling reopen review:', err);
+    res.status(500).json({ message: 'Server error handling reopen review: ' + err.message });
+  }
+});
+
+// GET /api/admin/settings/citizen-verification — Fetch dynamic threshold & radius config
+router.get('/settings/citizen-verification', adminProtect, async (req, res) => {
+  try {
+    const thresholdDoc = await SystemSetting.findOne({ key: 'community_reopen_threshold' });
+    const radiusDoc = await SystemSetting.findOne({ key: 'verification_radius_km' });
+
+    res.json({
+      communityReopenThreshold: thresholdDoc ? parseInt(thresholdDoc.value) : 2,
+      verificationRadiusKm: radiusDoc ? parseFloat(radiusDoc.value) : 5
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error fetching verification settings' });
+  }
+});
+
+// PUT /api/admin/settings/citizen-verification — Update dynamic threshold & radius config
+router.put('/settings/citizen-verification', adminProtect, async (req, res) => {
+  try {
+    const { communityReopenThreshold, verificationRadiusKm } = req.body;
+
+    if (communityReopenThreshold !== undefined) {
+      await SystemSetting.findOneAndUpdate(
+        { key: 'community_reopen_threshold' },
+        {
+          key: 'community_reopen_threshold',
+          value: parseInt(communityReopenThreshold),
+          description: 'Number of Still Exists citizen votes required to trigger Community Reopen Alert',
+          updatedBy: req.user ? req.user._id : (req.admin ? req.admin._id : undefined),
+          updatedAt: new Date()
+        },
+        { upsert: true, new: true }
+      );
+    }
+
+    if (verificationRadiusKm !== undefined) {
+      await SystemSetting.findOneAndUpdate(
+        { key: 'verification_radius_km' },
+        {
+          key: 'verification_radius_km',
+          value: parseFloat(verificationRadiusKm),
+          description: 'Radius in km for identifying nearby citizens for verification alerts',
+          updatedBy: req.user ? req.user._id : (req.admin ? req.admin._id : undefined),
+          updatedAt: new Date()
+        },
+        { upsert: true, new: true }
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'Citizen Verification settings updated successfully!',
+      communityReopenThreshold: parseInt(communityReopenThreshold || 2),
+      verificationRadiusKm: parseFloat(verificationRadiusKm || 5)
+    });
+  } catch (err) {
+    console.error('Error saving verification settings:', err);
+    res.status(500).json({ message: 'Server error updating verification settings: ' + err.message });
+  }
+});
+
+
+// ==========================================
+// CIVIC INTELLIGENCE PLATFORM & HEATMAP API
+// ==========================================
+
+// GET /api/admin/civic-intelligence/map — Civic Problem Heatmap & City Intelligence Data
+router.get('/civic-intelligence/map', adminProtect, async (req, res) => {
+  try {
+    const {
+      category,
+      status,
+      priority,
+      ward,
+      department,
+      timeframe,
+      days,
+      communityOnly,
+      aiStatus,
+      slaStatus
+    } = req.query;
+
+    const filter = {};
+
+    // Category Filter
+    if (category && category !== 'All') {
+      filter.category = category;
+    }
+
+    // Status Filter
+    if (status && status !== 'All') {
+      if (status === 'Active') {
+        filter.status = { $in: ['New', 'Assigned', 'Working', 'Pending Citizen Verification', 'Community Reopened'] };
+      } else {
+        filter.status = status;
+      }
+    }
+
+    // Priority Filter
+    if (priority && priority !== 'All') {
+      filter.priority = priority;
+    }
+
+    // Department Filter
+    if (department && department !== 'All') {
+      filter.department = department;
+    }
+
+    // Timeframe / Days Filter
+    const daysNum = parseInt(days || timeframe);
+    if (!isNaN(daysNum) && daysNum > 0) {
+      const dateThreshold = new Date();
+      dateThreshold.setDate(dateThreshold.getDate() - daysNum);
+      filter.createdAt = { $gte: dateThreshold };
+    }
+
+    // Community Issues Only Filter
+    if (communityOnly === 'true' || communityOnly === true) {
+      filter.$or = [
+        { 'communityIssue.isPrimary': true },
+        { 'communityIssue.supporterCount': { $gt: 1 } },
+        { 'communityIssue.duplicateCount': { $gt: 0 } }
+      ];
+    }
+
+    // AI Classification Status Filter
+    if (aiStatus && aiStatus !== 'All') {
+      if (aiStatus === 'AI Verified') {
+        filter.aiAnalysisStatus = 'COMPLETED';
+      } else if (aiStatus === 'AI Pending Review') {
+        filter.aiAnalysisStatus = 'ANALYZING';
+      } else if (aiStatus === 'AI Overridden') {
+        filter['aiAnalysis.confirmedByCitizen'] = false;
+      }
+    }
+
+    // SLA Status Filter
+    const now = new Date();
+    if (slaStatus && slaStatus !== 'All') {
+      if (slaStatus === 'Overdue' || slaStatus === 'Breached') {
+        filter.slaDueAt = { $lt: now };
+        filter.status = { $nin: ['Resolved', 'Closed'] };
+      } else if (slaStatus === 'Due Soon') {
+        const soon = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+        filter.slaDueAt = { $gte: now, $lte: soon };
+        filter.status = { $nin: ['Resolved', 'Closed'] };
+      } else if (slaStatus === 'On Track') {
+        filter.slaDueAt = { $gt: now };
+      }
+    }
+
+    // Ward Filter (Check in address, title, or ward field)
+    if (ward && ward !== 'All') {
+      const wardRegex = new RegExp(ward, 'i');
+      filter.$or = [
+        { 'location.address': wardRegex },
+        { description: wardRegex },
+        { title: wardRegex }
+      ];
+    }
+
+    // Fetch raw complaint documents matching criteria
+    const rawComplaints = await Complaint.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('citizenId', 'fullName email phone')
+      .lean();
+
+    // Populate worker & supervisor details cleanly
+    const complaints = await Promise.all(rawComplaints.map(async (c) => {
+      let worker = null;
+      if (c.workerId) {
+        worker = await User.findById(c.workerId).select('_id fullName email department city role').lean();
+        if (!worker) {
+          worker = await FieldWorker.findById(c.workerId).select('_id fullName email department city role').lean();
+        }
+      }
+      return {
+        ...c,
+        workerId: worker || c.workerId
+      };
+    }));
+
+    // City-wide overview statistics
+    const totalIssues = complaints.length;
+    const activeIssues = complaints.filter(c => ['New', 'Assigned', 'Working', 'Pending Citizen Verification', 'Community Reopened'].includes(c.status)).length;
+    const resolvedIssues = complaints.filter(c => ['Resolved', 'Closed'].includes(c.status)).length;
+    const communityIssues = complaints.filter(c => (c.communityIssue?.supporterCount || 0) > 1 || c.communityIssue?.isPrimary === true).length;
+    const slaBreachedIssues = complaints.filter(c => c.slaDueAt && new Date(c.slaDueAt) < now && !['Resolved', 'Closed'].includes(c.status)).length;
+
+    // Category distribution counts
+    const categoryCounts = {
+      Road: 0,
+      Garbage: 0,
+      'Street Light': 0,
+      Water: 0,
+      Drainage: 0,
+      Parks: 0,
+      Building: 0,
+      Other: 0
+    };
+
+    complaints.forEach(c => {
+      const cat = c.category || 'Other';
+      if (categoryCounts[cat] !== undefined) {
+        categoryCounts[cat]++;
+      } else {
+        const catLower = cat.toLowerCase();
+        if (catLower.includes('road') || catLower.includes('pothole')) categoryCounts.Road++;
+        else if (catLower.includes('garbage') || catLower.includes('waste')) categoryCounts.Garbage++;
+        else if (catLower.includes('light')) categoryCounts['Street Light']++;
+        else if (catLower.includes('water')) categoryCounts.Water++;
+        else if (catLower.includes('drain')) categoryCounts.Drainage++;
+        else if (catLower.includes('park')) categoryCounts.Parks++;
+        else if (catLower.includes('build')) categoryCounts.Building++;
+        else categoryCounts.Other++;
+      }
+    });
+
+    // Hotspot aggregation by Ward / Locality
+    const wardMap = new Map();
+    complaints.forEach(c => {
+      let wardName = 'City Central';
+      const addr = c.location?.address || '';
+      const wardMatch = addr.match(/Ward\s*\d+/i) || c.title?.match(/Ward\s*\d+/i);
+      if (wardMatch) {
+        wardName = wardMatch[0].toUpperCase();
+      } else if (addr) {
+        const parts = addr.split(',').map(s => s.trim()).filter(Boolean);
+        if (parts.length > 0) wardName = parts[0];
+      }
+
+      if (!wardMap.has(wardName)) {
+        wardMap.set(wardName, {
+          ward: wardName,
+          count: 0,
+          activeCount: 0,
+          resolvedCount: 0,
+          communityCount: 0,
+          lat: c.location?.lat || 22.3039,
+          lng: c.location?.lng || 70.8022
+        });
+      }
+
+      const item = wardMap.get(wardName);
+      item.count++;
+      if (['New', 'Assigned', 'Working', 'Pending Citizen Verification', 'Community Reopened'].includes(c.status)) {
+        item.activeCount++;
+      } else {
+        item.resolvedCount++;
+      }
+      if ((c.communityIssue?.supporterCount || 0) > 1 || c.communityIssue?.isPrimary === true) {
+        item.communityCount++;
+      }
+    });
+
+    const hotspots = Array.from(wardMap.values()).sort((a, b) => b.count - a.count).slice(0, 10);
+
+    res.json({
+      success: true,
+      summary: {
+        totalIssues,
+        activeIssues,
+        resolvedIssues,
+        communityIssues,
+        slaBreachedIssues,
+        categoryCounts
+      },
+      hotspots,
+      complaints
+    });
+  } catch (err) {
+    console.error('Error fetching civic intelligence map data:', err);
+    res.status(500).json({ message: 'Server error fetching civic intelligence data: ' + err.message });
+  }
+});
+
+// ==========================================
+// ADMIN COMMUNITY ISSUES & DUPLICATE MANAGEMENT
+// ==========================================
+
+const ComplaintRelationship = require('../models/ComplaintRelationship');
+const ComplaintSupporter = require('../models/ComplaintSupporter');
+
+// GET /api/admin/complaints/community-issues — Fetch primary community issues and metrics
+router.get('/complaints/community-issues', adminProtect, async (req, res) => {
+  try {
+    const primaryIssues = await Complaint.find({ 'communityIssue.isPrimary': { $ne: false } })
+      .sort({ 'communityIssue.supporterCount': -1, createdAt: -1 })
+      .populate('citizenId', 'fullName email')
+      .populate('workerId', 'fullName email');
+
+    const totalCommunityIssues = primaryIssues.length;
+    const totalSupportersCount = primaryIssues.reduce((acc, c) => acc + (c.communityIssue?.supporterCount || 1), 0);
+    const totalDuplicatesConsolidated = await ComplaintRelationship.countDocuments({ relationshipType: { $in: ['CONFIRMED_DUPLICATE', 'MERGED'] } });
+
+    const relationships = await ComplaintRelationship.find()
+      .populate('primaryComplaintId', 'title category status')
+      .populate('relatedComplaintId', 'title category status')
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+    res.json({
+      primaryIssues,
+      relationships,
+      metrics: {
+        totalCommunityIssues,
+        totalSupportersCount,
+        totalDuplicatesConsolidated,
+        citizenParticipationRate: totalCommunityIssues > 0 ? Math.round((totalSupportersCount / totalCommunityIssues) * 10) / 10 : 1.0
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching admin community issues:', err);
+    res.status(500).json({ message: 'Server error fetching community issues: ' + err.message });
+  }
+});
+
+// POST /api/admin/complaints/merge — Admin manual merge of secondary complaint into primary complaint
+router.post('/complaints/merge', adminProtect, async (req, res) => {
+  try {
+    const { primaryComplaintId, secondaryComplaintId, reason } = req.body;
+
+    if (!primaryComplaintId || !secondaryComplaintId) {
+      return res.status(400).json({ message: 'Primary complaint ID and secondary complaint ID are required' });
+    }
+
+    if (primaryComplaintId.toString() === secondaryComplaintId.toString()) {
+      return res.status(400).json({ message: 'Cannot merge a complaint with itself' });
+    }
+
+    const primary = await Complaint.findById(primaryComplaintId);
+    const secondary = await Complaint.findById(secondaryComplaintId);
+
+    if (!primary || !secondary) {
+      return res.status(404).json({ message: 'Primary or secondary complaint not found' });
+    }
+
+    // Preserve secondary complaint history, mark as non-primary linked to primary
+    if (!secondary.communityIssue) secondary.communityIssue = {};
+    secondary.communityIssue.isPrimary = false;
+    secondary.communityIssue.primaryComplaintId = primary._id;
+    secondary.status = 'Closed'; // Consolidated into primary issue
+    await secondary.save();
+
+    // Increment duplicate count and supporter count on primary
+    if (!primary.communityIssue) primary.communityIssue = { isPrimary: true, supporterCount: 1, duplicateCount: 0 };
+    primary.communityIssue.duplicateCount = (primary.communityIssue.duplicateCount || 0) + 1;
+    primary.communityIssue.supporterCount = (primary.communityIssue.supporterCount || 0) + (secondary.communityIssue?.supporterCount || 1);
+
+    // Merge secondary images into primary complaint images list safely
+    if (secondary.images && secondary.images.length > 0) {
+      primary.images = [...(primary.images || []), ...secondary.images].slice(0, 15);
+    }
+
+    await primary.save();
+
+    // Record relationship
+    const relationship = new ComplaintRelationship({
+      primaryComplaintId: primary._id,
+      relatedComplaintId: secondary._id,
+      relationshipType: 'MERGED',
+      similarityScore: 100,
+      createdBy: req.admin ? req.admin._id : undefined
+    });
+    await relationship.save();
+
+    // Log Activity with audit action COMPLAINT_MERGED (requirement #30)
+    try {
+      await new ActivityLog({
+        adminId: req.admin ? req.admin._id : undefined,
+        actorRole: req.user ? req.user.role : 'admin',
+        actorName: req.admin ? req.admin.fullName : 'Admin',
+        action: 'COMPLAINT_MERGED',
+        details: `Merged secondary complaint #${String(secondary._id).slice(-4).toUpperCase()} into primary complaint #${String(primary._id).slice(-4).toUpperCase()} (${reason || 'Manual Admin Consolidation'})`,
+        targetType: 'Complaint',
+        targetId: primary._id,
+        ipAddress: req.ip
+      }).save();
+    } catch (logErr) {
+      console.warn('ActivityLog skipped for merge:', logErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully merged complaint #${String(secondary._id).slice(-4).toUpperCase()} into #${String(primary._id).slice(-4).toUpperCase()}`,
+      primary,
+      secondary
+    });
+  } catch (err) {
+    console.error('Error merging complaints:', err);
+    res.status(500).json({ message: 'Server error merging complaints: ' + err.message });
   }
 });
 
 // ==========================================
 // CITIZENS MANAGEMENT
 // ==========================================
+
 
 // GET /api/admin/citizens — All citizens with stats
 router.get('/citizens', adminProtect, async (req, res) => {
@@ -432,9 +1107,6 @@ router.delete('/citizens/:id', adminProtect, async (req, res) => {
 // ==========================================
 // PERSONNEL MANAGEMENT
 // ==========================================
-
-const Supervisor = require('../models/Supervisor');
-const FieldWorker = require('../models/FieldWorker');
 
 // GET /api/admin/personnel — All supervisors & workers
 router.get('/personnel', adminProtect, async (req, res) => {

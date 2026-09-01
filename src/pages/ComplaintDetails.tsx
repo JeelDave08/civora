@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { useParams, Link } from "react-router-dom"
 import { motion } from "framer-motion"
-import { MapPin, Clock, CheckCircle, AlertTriangle, ArrowLeft, Building2, User, Calendar, MessageSquare, Send } from "lucide-react"
+import { MapPin, Clock, CheckCircle, AlertTriangle, ArrowLeft, Building2, User, Calendar, MessageSquare, Send, Users, Bell, BellOff, ThumbsUp, ThumbsDown, ShieldCheck, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card"
@@ -15,6 +15,13 @@ export function ComplaintDetails() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
+
+  // Community Issue State
+  const [communityData, setCommunityData] = useState<any>(null)
+  const [isJoining, setIsJoining] = useState(false)
+  const [isFollowingLoading, setIsFollowingLoading] = useState(false)
+  const [isVerifying, setIsVerifying] = useState(false)
+
 
   useEffect(() => {
     const fetchComplaintDetails = async () => {
@@ -63,6 +70,9 @@ export function ComplaintDetails() {
             ]
           }
           setComplaint(formattedComplaint)
+
+          // Fetch Community Issue Telemetry
+          fetchCommunityInfo(formattedComplaint.rawId)
         } else {
           setError("Failed to fetch complaint details.")
         }
@@ -78,6 +88,92 @@ export function ComplaintDetails() {
       fetchComplaintDetails()
     }
   }, [id, token])
+
+  const fetchCommunityInfo = async (complaintRawId: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${complaintRawId}/community`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const cData = await res.json()
+        setCommunityData(cData)
+      }
+    } catch (cErr) {
+      console.warn("Error fetching community telemetry:", cErr)
+    }
+  }
+
+  const handleJoinIssue = async () => {
+    if (!complaint?.rawId) return
+    setIsJoining(true)
+    try {
+      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${complaint.rawId}/join`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ comment: "Joined via complaint view" })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        alert("You joined this community issue!")
+        fetchCommunityInfo(complaint.rawId)
+      } else {
+        alert(data.message || "Could not join issue")
+      }
+    } catch (err: any) {
+      alert("Error joining issue: " + err.message)
+    } finally {
+      setIsJoining(false)
+    }
+  }
+
+  const handleToggleFollow = async () => {
+    if (!complaint?.rawId || !communityData) return
+    setIsFollowingLoading(true)
+    try {
+      const method = communityData.isFollowing ? "DELETE" : "POST"
+      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${complaint.rawId}/follow`, {
+        method,
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+      if (res.ok) {
+        fetchCommunityInfo(complaint.rawId)
+      }
+    } catch (err) {
+      console.error("Follow error:", err)
+    } finally {
+      setIsFollowingLoading(false)
+    }
+  }
+
+  const handleVerifyResolution = async (vote: 'RESOLVED' | 'STILL_EXISTS') => {
+    if (!complaint?.rawId) return
+    setIsVerifying(true)
+    try {
+      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${complaint.rawId}/verify`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ vote })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        alert(data.message)
+        fetchCommunityInfo(complaint.rawId)
+      } else {
+        alert(data.message || "Failed to record verification")
+      }
+    } catch (err: any) {
+      alert("Error recording verification: " + err.message)
+    } finally {
+      setIsVerifying(false)
+    }
+  }
+
 
   if (isLoading) {
     return (
@@ -122,6 +218,61 @@ export function ComplaintDetails() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Details */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Community Issue Banner */}
+          {communityData && (
+            <div className="p-5 rounded-2xl bg-gradient-to-r from-primary/10 via-secondary/10 to-primary/10 border border-primary/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-2xl bg-primary text-white flex items-center justify-center font-bold text-lg shrink-0 shadow-md">
+                  👥
+                </div>
+                <div>
+                  <h4 className="font-bold text-heading text-base flex items-center gap-2">
+                    Community Issue
+                    <span className="text-xs bg-primary/20 text-primary px-2.5 py-0.5 rounded-full font-semibold">
+                      {communityData.supporterCount} Citizens Affected
+                    </span>
+                  </h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {communityData.hasJoined
+                      ? "You are a registered supporter of this community issue!"
+                      : "Multiple citizens can join this report to increase operational urgency."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                {!communityData.hasJoined && (
+                  <Button
+                    size="sm"
+                    onClick={handleJoinIssue}
+                    disabled={isJoining}
+                    className="h-9 text-xs bg-primary text-white gap-1.5 shadow-sm font-semibold"
+                  >
+                    {isJoining ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
+                    Join Issue
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleToggleFollow}
+                  disabled={isFollowingLoading}
+                  className="h-9 text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
+                >
+                  {communityData.isFollowing ? (
+                    <>
+                      <BellOff size={14} /> Following
+                    </>
+                  ) : (
+                    <>
+                      <Bell size={14} /> Follow Updates
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Issue Details</CardTitle>
@@ -134,6 +285,7 @@ export function ComplaintDetails() {
                 </div>
                 <p className="text-muted-foreground leading-relaxed">{complaint.description}</p>
               </div>
+
 
               <div className="grid sm:grid-cols-2 gap-4 pt-4 border-t border-border">
                 <div className="flex items-start gap-3">
@@ -235,8 +387,126 @@ export function ComplaintDetails() {
                   <p className="text-sm text-muted-foreground">No media attached to this complaint.</p>
                 )}
               </div>
+
+              {/* Citizen Resolution Verification Card */}
+              {(["Pending Citizen Verification", "Resolved", "Closed"].includes(complaint.status) || complaint.status?.includes("Community Reopened")) && (
+                <div className="pt-4 border-t border-border">
+                  <div className="p-6 rounded-3xl bg-gradient-to-br from-purple-50 via-white to-purple-50/30 border-2 border-purple-200 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-base font-extrabold text-purple-900 flex items-center gap-2">
+                        <ShieldCheck size={22} className="text-purple-600" /> Community Verification Engine
+                      </h4>
+                      <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
+                        complaint.status?.includes("Community Reopened") ? "bg-amber-100 text-amber-800 border border-amber-300" :
+                        complaint.status === "Pending Citizen Verification" ? "bg-purple-100 text-purple-700" :
+                        "bg-emerald-100 text-emerald-700"
+                      }`}>
+                        {complaint.status}
+                      </span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-white border border-purple-100 text-center space-y-2">
+                      <p className="text-sm font-black text-slate-800">Was this issue actually resolved in your area?</p>
+                      <p className="text-xs text-slate-500">Your feedback updates the community accountability matrix.</p>
+                      
+                      {communityData?.userVerificationVote || communityData?.hasVoted ? (
+                        <div className="mt-3 p-3 bg-purple-50 rounded-xl text-xs font-bold text-purple-800 border border-purple-200">
+                          ✅ You submitted your verification vote: <span className="underline font-black">{communityData?.userVerificationVote || communityData?.userVote || "Recorded"}</span>
+                        </div>
+                      ) : (
+                        <div className="flex justify-center gap-4 pt-2">
+                          <Button
+                            size="lg"
+                            onClick={async () => {
+                              try {
+                                setIsVerifying(true)
+                                const res = await fetch(`http://localhost:5000/api/citizen/verification/${complaint.rawId}/respond`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    "Authorization": `Bearer ${token}`
+                                  },
+                                  body: JSON.stringify({ response: "YES_RESOLVED" })
+                                })
+                                const resData = await res.json()
+                                if (res.ok) {
+                                  alert(resData.message)
+                                  fetchCommunityInfo(complaint.rawId)
+                                } else {
+                                  alert(resData.message || "Failed to submit response")
+                                }
+                              } catch (err: any) {
+                                alert("Error submitting response: " + err.message)
+                              } finally {
+                                setIsVerifying(false)
+                              }
+                            }}
+                            disabled={isVerifying}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-2xl text-xs gap-2 shadow-md hover:scale-105 transition-all"
+                          >
+                            {isVerifying ? <Loader2 size={16} className="animate-spin" /> : <ThumbsUp size={16} />}
+                            ✅ Yes, Resolved
+                          </Button>
+
+                          <Button
+                            size="lg"
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                setIsVerifying(true)
+                                const res = await fetch(`http://localhost:5000/api/citizen/verification/${complaint.rawId}/respond`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    "Authorization": `Bearer ${token}`
+                                  },
+                                  body: JSON.stringify({ response: "STILL_EXISTS" })
+                                })
+                                const resData = await res.json()
+                                if (res.ok) {
+                                  alert(resData.message)
+                                  fetchCommunityInfo(complaint.rawId)
+                                } else {
+                                  alert(resData.message || "Failed to submit response")
+                                }
+                              } catch (err: any) {
+                                alert("Error submitting response: " + err.message)
+                              } finally {
+                                setIsVerifying(false)
+                              }
+                            }}
+                            disabled={isVerifying}
+                            className="border-rose-200 text-rose-600 hover:bg-rose-50 font-bold px-6 py-2.5 rounded-2xl text-xs gap-2"
+                          >
+                            {isVerifying ? <Loader2 size={16} className="animate-spin" /> : <ThumbsDown size={16} />}
+                            ❌ Still Exists
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {communityData?.verification && (
+                      <div className="grid grid-cols-3 gap-3 text-center pt-2">
+                        <div className="p-2.5 bg-white rounded-xl border border-slate-200">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase block">👥 Notified</span>
+                          <span className="text-lg font-black text-slate-800">{communityData.verification.citizensNotified || 0}</span>
+                        </div>
+                        <div className="p-2.5 bg-white rounded-xl border border-emerald-200">
+                          <span className="text-[9px] text-emerald-600 font-bold uppercase block">✅ Yes</span>
+                          <span className="text-lg font-black text-emerald-600">{communityData.verification.resolvedCount || communityData.verification.yesCount || 0}</span>
+                        </div>
+                        <div className="p-2.5 bg-white rounded-xl border border-rose-200">
+                          <span className="text-[9px] text-rose-600 font-bold uppercase block">❌ Still Exists</span>
+                          <span className="text-lg font-black text-rose-600">{communityData.verification.stillExistsCount || 0}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
+
 
           <Card>
             <CardHeader>

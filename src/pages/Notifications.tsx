@@ -87,6 +87,26 @@ export function Notifications() {
             })
           }
 
+          // 3.5 Citizen Verification Trigger Notification
+          if (c.status === "Pending Citizen Verification" || c.citizenVerification?.verificationStatus === "IN_VERIFICATION") {
+            generatedList.push({
+              id: `${c._id}-verification`,
+              rawId: c._id,
+              type: "verification",
+              title: "Was this issue actually resolved?",
+              message: `Field worker marked complaint ${compCode} ('${title}') as resolved. Nearby citizens are requested to verify if the issue is actually resolved.`,
+              time: c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : new Date(c.createdAt).toLocaleDateString(),
+              timestamp: new Date(c.updatedAt || c.createdAt).getTime() + 2500,
+              read: false,
+              icon: Bell,
+              color: "text-purple-600",
+              bg: "bg-purple-50",
+              badgeText: "Verification Prompt",
+              badgeBg: "bg-purple-100 text-purple-700",
+              isVerificationPrompt: true
+            })
+          }
+
           // 4. Resolved notification
           if (c.status === "Resolved" || c.status === "Closed") {
             generatedList.push({
@@ -203,6 +223,26 @@ export function Notifications() {
                           {notif.message}
                         </p>
                         
+                        {notif.isVerificationPrompt && (
+                          <div className="mt-3 p-3 bg-purple-50 rounded-2xl border border-purple-200 space-y-2">
+                            <p className="text-xs font-bold text-purple-900">Cast your verification response:</p>
+                            <div className="flex items-center gap-3">
+                              <Link
+                                to={`/citizen/complaint/${notif.rawId}`}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                              >
+                                ✅ Yes, Resolved
+                              </Link>
+                              <Link
+                                to={`/citizen/complaint/${notif.rawId}`}
+                                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                              >
+                                ❌ Still Exists
+                              </Link>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between mt-4 pt-2 border-t border-slate-100">
                           <div className="flex items-center gap-4">
                             {!notif.read && (

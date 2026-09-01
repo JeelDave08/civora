@@ -160,18 +160,29 @@ export function SupervisorComplaints() {
             ) : (
               filtered.map((c) => (
                 <div key={c._id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50 gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-1">
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
-                        #CMP-{String(c._id).slice(-4).toUpperCase()}
-                      </span>
-                      <h3 className="font-bold text-slate-800">{c.title}</h3>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-1 flex-wrap">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
+                          #CMP-{String(c._id).slice(-4).toUpperCase()}
+                        </span>
+                        <h3 className="font-bold text-slate-800">{c.title}</h3>
+                        {c.communityIssue?.supporterCount > 1 && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 border border-indigo-200">
+                            👥 {c.communityIssue.supporterCount} Citizens Joined
+                          </span>
+                        )}
+                        {c.communityIssue?.verification?.reopenSignaled && (
+                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300 animate-pulse">
+                            ⚠️ Reopen Signal Alert
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 text-sm text-slate-500">
+                        <span className="flex items-center gap-1"><MapPin size={14}/> {getLocationString(c.location) || c.category || 'General City'}</span>
+                        <span className="flex items-center gap-1"><Clock size={14}/> {new Date(c.createdAt).toLocaleDateString()}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-sm text-slate-500">
-                      <span className="flex items-center gap-1"><MapPin size={14}/> {getLocationString(c.location) || c.category || 'General City'}</span>
-                      <span className="flex items-center gap-1"><Clock size={14}/> {new Date(c.createdAt).toLocaleDateString()}</span>
-                    </div>
-                  </div>
+
                   
                   <div className="flex items-center gap-3">
                     {/* Worker Selector & Date Picker */}

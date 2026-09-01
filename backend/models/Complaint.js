@@ -4,7 +4,11 @@ const complaintSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String },
   category: { type: String, required: true }, // e.g., 'Electricity', 'Roads', 'Water'
-  status: { type: String, enum: ['New', 'Assigned', 'Working', 'Resolved', 'Closed'], default: 'New' },
+  status: { 
+    type: String, 
+    enum: ['New', 'Assigned', 'Working', 'Pending Citizen Verification', 'Community Reopened – Supervisor Review Required', 'Community Reopened', 'Resolved', 'Closed'], 
+    default: 'New' 
+  },
   priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },
   progress: { type: Number, default: 0 },
   citizenId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -17,7 +21,18 @@ const complaintSchema = new mongoose.Schema({
   location: {
     lat: { type: Number },
     lng: { type: Number },
-    address: { type: String }
+    address: { type: String },
+    geoPoint: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        default: undefined
+      }
+    }
   },
   imageUrl: { type: String },
   images: [mongoose.Schema.Types.Mixed], // Supports String URLs or { url, publicId, aiAnalysis: { detectedIssue, confidenceScore, suggestedCategory, suggestedPriority, status, analyzedAt, confirmedByCitizen, confirmedAt } }
@@ -57,6 +72,32 @@ const complaintSchema = new mongoose.Schema({
     analyzedAt: { type: Date, default: null },
     confirmedAt: { type: Date, default: null }
   },
+  communityIssue: {
+    isPrimary: { type: Boolean, default: true },
+    primaryComplaintId: { type: mongoose.Schema.Types.ObjectId, ref: 'Complaint', default: null },
+    supporterCount: { type: Number, default: 0 },
+    duplicateCount: { type: Number, default: 0 },
+    followersCount: { type: Number, default: 0 },
+    followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    verification: {
+      resolvedCount: { type: Number, default: 0 },
+      stillExistsCount: { type: Number, default: 0 },
+      reopenSignaled: { type: Boolean, default: false }
+    }
+  },
+  citizenVerification: {
+    citizensNotified: { type: Number, default: 0 },
+    yesCount: { type: Number, default: 0 },
+    stillExistsCount: { type: Number, default: 0 },
+    verificationStatus: {
+      type: String,
+      enum: ['NONE', 'PENDING_SUPERVISOR', 'IN_VERIFICATION', 'VERIFIED_CLOSED', 'COMMUNITY_REOPENED'],
+      default: 'NONE'
+    },
+    communityReopened: { type: Boolean, default: false },
+    approvedBySupervisorAt: { type: Date },
+    reopenedAt: { type: Date }
+  },
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -67,6 +108,22 @@ complaintSchema.index({ department: 1 });
 complaintSchema.index({ priority: 1 });
 complaintSchema.index({ workerId: 1 });
 complaintSchema.index({ createdAt: -1 });
+complaintSchema.index({ 'location.geoPoint': '2dsphere' });
+complaintSchema.index({ 'communityIssue.isPrimary': 1 });
+complaintSchema.index({ 'communityIssue.primaryComplaintId': 1 });
+
+
+// Pre-save hook to sync GeoJSON point coordinates from lat/lng
+complaintSchema.pre('save', function () {
+  if (this.location && typeof this.location.lat === 'number' && typeof this.location.lng === 'number') {
+    this.location.geoPoint = {
+      type: 'Point',
+      coordinates: [this.location.lng, this.location.lat]
+    };
+  }
+});
 
 
 module.exports = mongoose.model('Complaint', complaintSchema);
+
+
