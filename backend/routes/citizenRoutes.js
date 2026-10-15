@@ -170,8 +170,8 @@ router.delete('/complaints/:id', protect, async (req, res) => {
   }
 });
 
-// Reverse Geocode Proxy using LocationIQ (keeps API key secure on backend)
-router.get('/reverse-geocode', protect, async (req, res) => {
+// Reverse Geocode Proxy using Mapbox (keeps API key secure on backend)
+router.get('/reverse-geocode', async (req, res) => {
   try {
     const { lat, lng } = req.query;
     const latitude = parseFloat(lat);
@@ -185,67 +185,251 @@ router.get('/reverse-geocode', protect, async (req, res) => {
       console.log(`[GPS] latitude: ${latitude}, longitude: ${longitude}`);
     }
 
-    const apiKey = process.env.LOCATIONIQ_API_KEY || "pk.0c9741909440306217e5f3b924862636";
-    const apiUrl = `https://us1.locationiq.com/v1/reverse?key=${apiKey}&lat=${latitude}&lon=${longitude}&format=json`;
+    /**
+     * Build the most specific real street/building address available.
+     *
+     * Desired format:
+     *   [house_number], [building/apartment], [road/street], [locality/suburb], Rajkot, Gujarat - [postcode]
+     *
+     * Strict Priority:
+     *   house_number -> building/apartment -> road/street -> neighbourhood/suburb/locality -> city -> state -> postcode
+     *
+     * Administrative "county/taluka" is NEVER used as a street/locality address.
+     */
+    const cleanToken = (t) => (t ? String(t).trim().replace(/^,+|,+$/g, '').trim() : '');
 
-    const response = await fetch(apiUrl);
-    const status = response.status;
+    const formatLocationAddress = (addr, displayName) => {
+      if (!addr && !displayName) return null;
+      addr = addr || {};
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[LOCATIONIQ REVERSE] HTTP Status: ${status}`);
-    }
+      // 1. house_number
+      const houseNumber = cleanToken(addr.house_number || addr.street_number || '');
 
-    if (response.ok) {
-      const data = await response.json();
-      const addr = data.address || {};
+      // 2. building / apartment / POI name
+      const building = cleanToken(
+        addr.building || addr.apartment || addr.flats || addr.residential_complex ||
+        addr.house_name || addr.commercial || addr.amenity || addr.office ||
+        addr.shop || addr.hotel || addr.hospital || addr.tourism || addr.leisure ||
+        addr.advertising_agency || addr.school || addr.university || addr.college ||
+        addr.bank || addr.restaurant || addr.cafe || addr.mall || addr.place_of_worship || ''
+      );
 
-      // Robust Indian & General location formatter hierarchy
-      let formattedAddress = "";
-      const road = addr.road || addr.street || addr.pedestrian || addr.footway || "";
-      const neighbourhood = addr.neighbourhood || addr.suburb || addr.residential || addr.locality || addr.district || "";
-      const city = addr.city || addr.town || addr.village || addr.municipality || addr.state_district || addr.county || "";
-      const state = addr.state || "";
+      // 3. road / street name
+      const road = cleanToken(
+        addr.road || addr.street || addr.pedestrian || addr.footway ||
+        addr.path || addr.cycleway || addr.lane || addr.avenue || addr.boulevard || addr.highway || ''
+      );
 
-      if (road && neighbourhood && city) {
-        formattedAddress = `${road}, ${neighbourhood}, ${city}`;
-      } else if (road && city) {
-        formattedAddress = `${road}, ${city}`;
-      } else if (neighbourhood && city) {
-        formattedAddress = `${neighbourhood}, ${city}`;
-      } else if (city && state) {
-        formattedAddress = `${city}, ${state}`;
-      } else if (data.display_name) {
-        formattedAddress = data.display_name;
-      } else {
-        formattedAddress = "Location detected";
+      // 4. neighbourhood / suburb / locality
+      const neighbourhood = cleanToken(addr.neighbourhood || addr.quarter || addr.allotments || '');
+      const suburb = cleanToken(addr.suburb || addr.residential || addr.hamlet || '');
+      const locality = cleanToken(addr.locality || addr.village || '');
+
+      const localityParts = [];
+      [neighbourhood, suburb, locality].forEach(loc => {
+        if (loc && !localityParts.some(p => p.toLowerCase() === loc.toLowerCase())) {
+          if (!road || !road.toLowerCase().includes(loc.toLowerCase())) {
+            localityParts.push(loc);
+          }
+        }
+      });
+      const area = localityParts.join(', ');
+
+      // 5. city (strictly city/town, NEVER county/taluka)
+      let city = cleanToken(addr.city || addr.town || addr.municipality || '');
+      if (!city) {
+        if (addr.state_district && !/taluka/i.test(addr.state_district)) {
+          city = cleanToken(addr.state_district);
+        } else {
+          city = 'Rajkot';
+        }
       }
 
-      return res.json({
-        success: true,
-        address: formattedAddress,
-        displayName: data.display_name || formattedAddress,
-        rawAddress: addr,
-        lat: latitude,
-        lng: longitude
+      // 6. state
+      const state = cleanToken(addr.state || 'Gujarat');
+
+      // 7. postcode / PIN
+      let pin = cleanToken(addr.postcode || '');
+      if (!pin && displayName) {
+        const pinMatch = String(displayName).match(/\b(36\d{4})\b/);
+        if (pinMatch) pin = pinMatch[1];
+      }
+
+      // Assemble prioritized address parts:
+      // [house_number], [building], [road], [locality/suburb], [city], [state] - [pin]
+      const parts = [];
+
+      // 1. House Number
+      if (houseNumber) {
+        parts.push(houseNumber);
+      }
+
+      // 2. Building / Apartment / POI
+      if (building && building.toLowerCase() !== houseNumber.toLowerCase()) {
+        parts.push(building);
+      }
+
+      // 3. Road / Street
+      if (road) {
+        if (!building || !building.toLowerCase().includes(road.toLowerCase())) {
+          parts.push(road);
+        }
+      }
+
+      // 4. Locality / Suburb / Neighbourhood
+      if (area) {
+        const areaLower = area.toLowerCase();
+        const cityLower = city.toLowerCase();
+        if (areaLower !== cityLower) {
+          parts.push(area);
+        }
+      }
+
+      // 5. City
+      if (city) {
+        parts.push(city);
+      }
+
+      // 6. State + PIN
+      if (state && pin) {
+        parts.push(`${state} - ${pin}`);
+      } else if (state) {
+        parts.push(state);
+      } else if (pin) {
+        parts.push(pin);
+      }
+
+      return parts.length ? parts.join(', ') : null;
+    };
+
+    /**
+     * Format address from Mapbox Reverse Geocoding API response.
+     *
+     * Mapbox feature structure:
+     *   feature.text       = road / street / POI name
+     *   feature.address    = house number
+     *   feature.context[]  = hierarchical context:
+     *     neighborhood.* -> neighbourhood
+     *     locality.*     -> local area / ward / society
+     *     postcode.*     -> PIN code
+     *     place.*        -> city
+     *     region.*       -> state
+     *
+     * Output: [house_number], [road/street/POI], [neighbourhood/locality], [city], [state] - [postcode]
+     */
+    const formatMapboxAddress = (feature) => {
+      if (!feature) return null;
+
+      const houseNumber = cleanToken(feature.address || '');
+      const streetOrPoi = cleanToken(feature.text || '');
+
+      let neighbourhood = '';
+      let locality = '';
+      let city = '';
+      let state = '';
+      let postcode = '';
+
+      if (Array.isArray(feature.context)) {
+        feature.context.forEach(ctx => {
+          const id = ctx.id || '';
+          const text = cleanToken(ctx.text || '');
+          if (id.startsWith('neighborhood')) neighbourhood = text;
+          else if (id.startsWith('locality'))    locality    = text;
+          else if (id.startsWith('place'))       city        = text;
+          else if (id.startsWith('region'))      state       = text;
+          else if (id.startsWith('postcode'))    postcode    = text;
+        });
+      }
+
+      if (!city)  city  = 'Rajkot';
+      if (!state) state = 'Gujarat';
+
+      const localityParts = [];
+      [neighbourhood, locality].forEach(l => {
+        if (l && !localityParts.includes(l) && l.toLowerCase() !== city.toLowerCase()) {
+          localityParts.push(l);
+        }
       });
+      const localityStr = localityParts.join(', ');
+
+      const parts = [];
+
+      if (houseNumber && streetOrPoi) {
+        parts.push(`${houseNumber}, ${streetOrPoi}`);
+      } else if (streetOrPoi) {
+        parts.push(streetOrPoi);
+      } else if (houseNumber) {
+        parts.push(houseNumber);
+      }
+
+      if (localityStr) parts.push(localityStr);
+      if (city)        parts.push(city);
+
+      if (state && postcode)  parts.push(`${state} - ${postcode}`);
+      else if (state)         parts.push(state);
+      else if (postcode)      parts.push(postcode);
+
+      return parts.length ? parts.join(', ') : null;
+    };
+
+    // ── PRIMARY: Mapbox Reverse Geocoding API ─────────────────────────────────
+    const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
+    const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${mapboxToken}`;
+
+    try {
+      const mapboxRes = await fetch(mapboxUrl);
+      if (mapboxRes.ok) {
+        const mapboxData = await mapboxRes.json();
+        const firstFeature = mapboxData.features && mapboxData.features[0];
+
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[MAPBOX REVERSE] place_name:', firstFeature && firstFeature.place_name);
+          console.log('[MAPBOX REVERSE] text:', firstFeature && firstFeature.text, ' | address:', firstFeature && firstFeature.address);
+          console.log('[MAPBOX REVERSE] context:', JSON.stringify(firstFeature && firstFeature.context));
+        }
+
+        if (firstFeature) {
+          const formattedAddress = formatMapboxAddress(firstFeature) || firstFeature.place_name || 'Location detected';
+          return res.json({
+            success: true,
+            address: formattedAddress,
+            displayName: firstFeature.place_name || formattedAddress,
+            lat: latitude,
+            lng: longitude
+          });
+        }
+      }
+    } catch (mapboxErr) {
+      console.error('Mapbox fetch error:', mapboxErr.message);
     }
 
-    // Secondary fallback to Nominatim if LocationIQ rate-limits or returns non-200
-    const nomRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`, {
-      headers: { 'User-Agent': 'CivoraApp/1.0' }
-    });
+    // ── FALLBACK: Nominatim (OpenStreetMap) jsonv2, zoom=18, accept-language=en ─
+    try {
+      const nomRes = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&addressdetails=1&zoom=18&accept-language=en`,
+        { headers: { 'User-Agent': 'CivoraApp/1.0' } }
+      );
 
-    if (nomRes.ok) {
-      const nomData = await nomRes.json();
-      if (nomData.display_name) {
+      if (nomRes.ok) {
+        const nomData = await nomRes.json();
+        const nomAddr = nomData.address || {};
+
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[NOMINATIM FALLBACK] Raw address fields:', JSON.stringify(nomAddr, null, 2));
+        }
+
+        const formattedAddress = formatLocationAddress(nomAddr, nomData.display_name) || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
         return res.json({
           success: true,
-          address: nomData.display_name,
-          displayName: nomData.display_name,
+          address: formattedAddress,
+          displayName: nomData.display_name || formattedAddress,
+          rawAddress: nomAddr,
           lat: latitude,
           lng: longitude
         });
       }
+    } catch (nomErr) {
+      console.error('Nominatim fallback fetch error:', nomErr.message);
     }
 
     return res.json({
@@ -314,6 +498,10 @@ router.post('/complaints', protect, async (req, res) => {
       lng, 
       imageUrl, 
       images,
+      ward,
+      wardNumber,
+      isLivePhoto,
+      livePhotoCapturedAt,
       aiAnalysis,
       aiAnalysisStatus,
       suggestedSlaHours,
@@ -327,6 +515,15 @@ router.post('/complaints', protect, async (req, res) => {
     // Ensure images array is initialized
     const imageList = Array.isArray(images) && images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
     const primaryImage = imageList[0] || '';
+
+    // Determine configured Ward
+    let complaintWard = (ward || wardNumber || '').trim();
+    if (!complaintWard && location) {
+      const match = location.match(/ward\s*(?:no\.?|number)?\s*([a-zA-Z0-9_-]+)/i);
+      if (match) {
+        complaintWard = match[1];
+      }
+    }
 
     // Auto-geocode address if lat/lng are missing
     if ((!lat || !lng) && location) {
@@ -356,12 +553,46 @@ router.post('/complaints', protect, async (req, res) => {
     const finalLat = lat ? parseFloat(lat) : 23.0225;
     const finalLng = lng ? parseFloat(lng) : 72.5714;
 
+    let backendWardNumber = null;
+    let wardDetectionMethod = null;
+    let wardDetectionStatus = 'PENDING';
+    let wardDetectedAt = null;
+
+    if (isLivePhoto) {
+      if (lat && lng) {
+        try {
+          const { getWardFromCoordinates } = require('../services/geoService');
+          const wardInfo = await getWardFromCoordinates(finalLat, finalLng);
+          backendWardNumber = wardInfo.wardNumber;
+          wardDetectionMethod = wardInfo.detectionMethod;
+          wardDetectionStatus = wardInfo.status;
+          wardDetectedAt = new Date();
+          
+          if (backendWardNumber !== null) {
+            complaintWard = backendWardNumber.toString(); // Update the string field for backward compatibility
+          }
+        } catch (geoErr) {
+          console.error('Error fetching ward from GPS:', geoErr.message);
+          wardDetectionStatus = 'GPS_UNAVAILABLE';
+        }
+      } else {
+        wardDetectionStatus = 'GPS_UNAVAILABLE';
+      }
+    }
+
     const newComplaint = new Complaint({
       title,
       description,
       category,
       priority,
       department: department || (aiAnalysis ? aiAnalysis.department : null),
+      ward: complaintWard,
+      wardNumber: backendWardNumber,
+      wardDetectionMethod,
+      wardDetectionStatus,
+      wardDetectedAt,
+      isLivePhoto: Boolean(isLivePhoto),
+      livePhotoCapturedAt: livePhotoCapturedAt ? new Date(livePhotoCapturedAt) : (isLivePhoto ? new Date() : null),
       location: { 
         address: location,
         lat: finalLat,
@@ -399,6 +630,74 @@ router.post('/complaints', protect, async (req, res) => {
     });
 
     await newComplaint.save();
+
+    // If Live Photo: find matching Ward Supervisor and dispatch direct email alert
+    if (isLivePhoto) {
+      try {
+        const Supervisor = require('../models/Supervisor');
+        const User = require('../models/User');
+        const { sendWardSupervisorLiveReportEmail } = require('../utils/emailSender');
+
+        let citizenName = 'Citizen';
+        try {
+          const citizenUser = await User.findById(req.user.id).select('fullName email');
+          if (citizenUser && citizenUser.fullName) {
+            citizenName = citizenUser.fullName;
+          }
+        } catch (uErr) {
+          console.warn('Could not fetch citizen details for live report notification:', uErr.message);
+        }
+
+        let assignedSupervisor = null;
+        if (newComplaint.wardNumber !== null && newComplaint.wardNumber !== undefined) {
+          const { getSupervisorForWard } = require('../services/supervisorService');
+          const supervisorRes = await getSupervisorForWard(newComplaint.wardNumber);
+          if (supervisorRes.status === 'FOUND' && supervisorRes.supervisor) {
+            assignedSupervisor = supervisorRes.supervisor;
+          }
+        }
+
+        if (assignedSupervisor) {
+          console.log(`[LIVE REPORT] Found supervisor ${assignedSupervisor.fullName} (${assignedSupervisor.email}) for Ward: ${newComplaint.wardNumber}`);
+          
+          try {
+            const Notification = require('../models/Notification');
+            const newNotif = new Notification({
+              recipientId: assignedSupervisor._id,
+              recipientRole: 'supervisor',
+              complaintId: newComplaint._id,
+              type: 'GENERAL',
+              title: '🚨 New Live Photo Complaint – Ward ' + newComplaint.wardNumber,
+              message: `Live Photo Complaint #${newComplaint._id.toString().slice(-6).toUpperCase()} submitted in Ward ${newComplaint.wardNumber}. Issue: "${newComplaint.title}" at ${newComplaint.location?.address || 'GPS Location'}. Captured: ${new Date(newComplaint.livePhotoCapturedAt || newComplaint.createdAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.`,
+            });
+            await newNotif.save();
+          } catch (notifErr) {
+            console.error('[LIVE REPORT NOTIFICATION ERROR]', notifErr.message);
+          }
+
+          sendWardSupervisorLiveReportEmail({
+            supervisor: assignedSupervisor,
+            complaint: newComplaint,
+            citizenName,
+            wardNumber: newComplaint.wardNumber,
+            livePhotoUrl: primaryImage,
+            capturedAt: livePhotoCapturedAt || newComplaint.createdAt
+          }).then(emailRes => {
+            if (emailRes.success) {
+              console.log(`[LIVE REPORT EMAIL SUCCESS] Notified supervisor ${assignedSupervisor.email} for complaint #${newComplaint._id}`);
+            } else {
+              console.error(`[LIVE REPORT EMAIL FAILED] Could not send to supervisor:`, emailRes.error);
+            }
+          }).catch(mailErr => {
+            console.error(`[LIVE REPORT EMAIL ERROR]`, mailErr.message);
+          });
+        } else {
+          console.warn(`[LIVE REPORT] No supervisor found for Ward: ${complaintWard || 'None'}`);
+        }
+      } catch (liveReportErr) {
+        console.error('[LIVE REPORT PROCESS ERROR] Safe catch:', liveReportErr);
+      }
+    }
 
     // Register creator as first supporter
     try {

@@ -28,7 +28,7 @@ export function ComplaintDetails() {
       try {
         setIsLoading(true)
         let data = null
-        const response = await fetch(`http://localhost:5000/api/citizen/complaints/${id}`, {
+        const response = await fetch(`http://10.152.129.95:5000/api/citizen/complaints/${id}`, {
           headers: { "Authorization": `Bearer ${token}` }
         })
         
@@ -36,7 +36,7 @@ export function ComplaintDetails() {
           data = await response.json()
         } else {
           // Fallback: search user complaints by suffix if full ID wasn't directly matched
-          const listRes = await fetch(`http://localhost:5000/api/citizen/complaints`, {
+          const listRes = await fetch(`http://10.152.129.95:5000/api/citizen/complaints`, {
             headers: { "Authorization": `Bearer ${token}` }
           })
           if (listRes.ok) {
@@ -91,7 +91,7 @@ export function ComplaintDetails() {
 
   const fetchCommunityInfo = async (complaintRawId: string) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${complaintRawId}/community`, {
+      const res = await fetch(`http://10.152.129.95:5000/api/citizen/complaints/${complaintRawId}/community`, {
         headers: { "Authorization": `Bearer ${token}` }
       })
       if (res.ok) {
@@ -107,7 +107,7 @@ export function ComplaintDetails() {
     if (!complaint?.rawId) return
     setIsJoining(true)
     try {
-      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${complaint.rawId}/join`, {
+      const res = await fetch(`http://10.152.129.95:5000/api/citizen/complaints/${complaint.rawId}/join`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -134,7 +134,7 @@ export function ComplaintDetails() {
     setIsFollowingLoading(true)
     try {
       const method = communityData.isFollowing ? "DELETE" : "POST"
-      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${complaint.rawId}/follow`, {
+      const res = await fetch(`http://10.152.129.95:5000/api/citizen/complaints/${complaint.rawId}/follow`, {
         method,
         headers: { "Authorization": `Bearer ${token}` }
       })
@@ -152,7 +152,7 @@ export function ComplaintDetails() {
     if (!complaint?.rawId) return
     setIsVerifying(true)
     try {
-      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${complaint.rawId}/verify`, {
+      const res = await fetch(`http://10.152.129.95:5000/api/citizen/complaints/${complaint.rawId}/verify`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -420,7 +420,7 @@ export function ComplaintDetails() {
                             onClick={async () => {
                               try {
                                 setIsVerifying(true)
-                                const res = await fetch(`http://localhost:5000/api/citizen/verification/${complaint.rawId}/respond`, {
+                                const res = await fetch(`http://10.152.129.95:5000/api/citizen/verification/${complaint.rawId}/respond`, {
                                   method: "POST",
                                   headers: {
                                     "Content-Type": "application/json",
@@ -454,7 +454,7 @@ export function ComplaintDetails() {
                             onClick={async () => {
                               try {
                                 setIsVerifying(true)
-                                const res = await fetch(`http://localhost:5000/api/citizen/verification/${complaint.rawId}/respond`, {
+                                const res = await fetch(`http://10.152.129.95:5000/api/citizen/verification/${complaint.rawId}/respond`, {
                                   method: "POST",
                                   headers: {
                                     "Content-Type": "application/json",
@@ -589,3 +589,4 @@ export function ComplaintDetails() {
     </div>
   )
 }
+

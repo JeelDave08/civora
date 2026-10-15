@@ -171,16 +171,42 @@ router.get('/complaints', adminProtect, async (req, res) => {
   }
 });
 
-// PUT /api/admin/complaints/:id/assign — Assign complaint to worker
+// PUT /api/admin/complaints/:id/assign — Assign or Edit complaint assignment
 router.put('/complaints/:id/assign', adminProtect, async (req, res) => {
   try {
-    const { workerId, startDate, dueDate } = req.body;
+    const { workerId, startDate, dueDate, title, description, priority, department, category, isEdit } = req.body;
+    if (!workerId) {
+      return res.status(400).json({ message: 'Field worker ID is required' });
+    }
+
+    const existingComplaint = await Complaint.findById(req.params.id);
+    if (!existingComplaint) return res.status(404).json({ message: 'Complaint not found' });
+
+    // Determine if this is an update to an existing assignment
+    const isUpdate = Boolean(isEdit || (existingComplaint.workerId && ['Assigned', 'Working', 'In Progress'].includes(existingComplaint.status)));
+
+    const updateFields = {
+      workerId
+    };
+
+    // Keep existing status if already Working/Assigned, otherwise set Assigned
+    if (!['Assigned', 'Working'].includes(existingComplaint.status)) {
+      updateFields.status = 'Assigned';
+    }
+
+    if (startDate !== undefined) updateFields.startDate = startDate;
+    if (dueDate !== undefined) updateFields.dueDate = dueDate;
+    if (title !== undefined && title.trim()) updateFields.title = title.trim();
+    if (description !== undefined && description.trim()) updateFields.description = description.trim();
+    if (priority !== undefined && priority.trim()) updateFields.priority = priority.trim();
+    if (department !== undefined && department.trim()) updateFields.department = department.trim();
+    if (category !== undefined && category.trim()) updateFields.category = category.trim();
+
     const complaint = await Complaint.findByIdAndUpdate(
       req.params.id,
-      { workerId, status: 'Assigned', startDate, dueDate },
+      updateFields,
       { new: true }
     );
-    if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
 
     // Log activity safely for Admin or Supervisor
     try {
@@ -188,8 +214,10 @@ router.put('/complaints/:id/assign', adminProtect, async (req, res) => {
         adminId: req.admin ? req.admin._id : undefined,
         actorRole: req.user ? req.user.role : 'admin',
         actorName: req.admin ? req.admin.fullName : 'Supervisor',
-        action: 'ASSIGN_COMPLAINT',
-        details: `Assigned complaint "${complaint.title}" to field worker`,
+        action: isUpdate ? 'UPDATE_ASSIGNMENT' : 'ASSIGN_COMPLAINT',
+        details: isUpdate
+          ? `Updated assignment for complaint "${complaint.title}" to field worker`
+          : `Assigned complaint "${complaint.title}" to field worker`,
         targetType: 'Complaint',
         targetId: complaint._id,
         ipAddress: req.ip
@@ -198,7 +226,82 @@ router.put('/complaints/:id/assign', adminProtect, async (req, res) => {
       console.warn('ActivityLog skipped for assignment:', logErr.message);
     }
 
-    res.json(complaint);
+    // AFTER successful database save:
+    // Send assignment or updated assignment email to the currently assigned worker
+    let emailSent = false;
+    let emailMessage = '';
+    try {
+      // Find worker across FieldWorker and fallback User models
+      let worker = await FieldWorker.findById(workerId).select('-password');
+      if (!worker) {
+        worker = await User.findById(workerId).select('-password');
+      }
+
+      // Determine Supervisor / Admin details
+      let supervisor = {
+        fullName: req.admin ? req.admin.fullName : 'Supervisor',
+        email: req.admin ? req.admin.email : ''
+      };
+
+      if (!req.admin && req.user && req.user.id) {
+        const sup = await Supervisor.findById(req.user.id).select('fullName email personalEmail');
+        if (sup) {
+          supervisor = {
+            fullName: sup.fullName,
+            email: sup.personalEmail || sup.email || ''
+          };
+        } else {
+          const adm = await Admin.findById(req.user.id).select('fullName email');
+          if (adm) {
+            supervisor = {
+              fullName: adm.fullName,
+              email: adm.email || ''
+            };
+          } else {
+            const u = await User.findById(req.user.id).select('fullName email');
+            if (u) {
+              supervisor = {
+                fullName: u.fullName,
+                email: u.email || ''
+              };
+            }
+          }
+        }
+      }
+
+      if (worker) {
+        const { sendWorkAssignmentEmail } = require('../utils/emailSender');
+        const emailResult = await sendWorkAssignmentEmail({
+          worker,
+          complaint,
+          supervisor,
+          isUpdate
+        });
+        emailSent = !!emailResult?.success;
+        emailMessage = emailResult?.success
+          ? (isUpdate ? 'Updated assignment email sent to the field worker.' : 'Assignment email sent to the field worker.')
+          : (emailResult?.error || 'Failed to send email');
+      } else {
+        console.warn(`[ASSIGNMENT] Worker record not found for workerId: ${workerId}`);
+        emailMessage = 'Assigned worker record not found for email notification';
+      }
+    } catch (emailErr) {
+      console.error(`Work assignment email failed for worker ${workerId}, complaint ${complaint._id}:`, emailErr.message);
+      emailSent = false;
+      emailMessage = emailErr.message;
+    }
+
+    const complaintObj = complaint.toObject ? complaint.toObject() : complaint;
+    res.json({
+      ...complaintObj,
+      emailSent,
+      isUpdate,
+      emailNotification: {
+        sent: emailSent,
+        message: emailMessage,
+        isUpdate
+      }
+    });
   } catch (err) {
     res.status(500).json({ message: 'Server error assigning complaint: ' + err.message });
   }
@@ -1215,7 +1318,7 @@ router.get('/personnel-monitoring', adminProtect, async (req, res) => {
 // POST /api/admin/personnel — Create supervisor or worker account
 router.post('/personnel', adminProtect, async (req, res) => {
   try {
-    const { fullName, email, personalEmail, password, role, department } = req.body;
+    const { fullName, email, personalEmail, password, role, department, wardNumber } = req.body;
     const cleanEmail = email.toLowerCase();
 
     if (!['supervisor', 'worker'].includes(role)) {
@@ -1246,7 +1349,8 @@ router.post('/personnel', adminProtect, async (req, res) => {
         personalEmail: personalEmail ? personalEmail.toLowerCase() : '',
         password: hashedPassword,
         department: department || 'General',
-        city: department || ''
+        city: department || '',
+        wardNumber: wardNumber ? String(wardNumber).trim() : ''
       });
     } else {
       newUser = new FieldWorker({
@@ -1287,7 +1391,7 @@ router.post('/personnel', adminProtect, async (req, res) => {
         actorRole: req.user ? req.user.role : 'admin',
         actorName: req.admin ? req.admin.fullName : 'Supervisor',
         action: 'CREATE_PERSONNEL',
-        details: `Created ${role} account (${role === 'supervisor' ? 'Supervisors' : 'Field Workers'}): ${fullName} (Login: ${email})`,
+        details: `Created ${role} account (${role === 'supervisor' ? 'Supervisors' : 'Field Workers'}): ${fullName} (Login: ${email})${wardNumber ? ` [Ward: ${wardNumber}]` : ''}`,
         targetType: role === 'supervisor' ? 'Supervisor' : 'FieldWorker',
         targetId: newUser._id,
         ipAddress: req.ip
@@ -1304,12 +1408,48 @@ router.post('/personnel', adminProtect, async (req, res) => {
         email: newUser.email,
         personalEmail: newUser.personalEmail,
         role: newUser.role,
-        department: newUser.department
+        department: newUser.department,
+        wardNumber: newUser.wardNumber || ''
       }
     });
   } catch (err) {
     console.error('Create personnel error:', err);
     res.status(500).json({ message: 'Server error creating personnel account: ' + err.message });
+  }
+});
+
+// PUT /api/admin/personnel/:id — Update personnel details (Ward, department, personal email, etc.)
+router.put('/personnel/:id', adminProtect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fullName, personalEmail, department, city, wardNumber } = req.body;
+
+    const updateObj = {};
+    if (fullName) updateObj.fullName = fullName.trim();
+    if (personalEmail !== undefined) updateObj.personalEmail = personalEmail.toLowerCase().trim();
+    if (department) updateObj.department = department.trim();
+    if (city !== undefined) updateObj.city = city.trim();
+    if (wardNumber !== undefined) updateObj.wardNumber = String(wardNumber).trim();
+
+    let account = await Supervisor.findByIdAndUpdate(id, updateObj, { new: true });
+    if (!account) {
+      account = await FieldWorker.findByIdAndUpdate(id, updateObj, { new: true });
+    }
+    if (!account) {
+      account = await User.findByIdAndUpdate(id, updateObj, { new: true });
+    }
+
+    if (!account) {
+      return res.status(404).json({ message: 'Personnel account not found' });
+    }
+
+    res.json({
+      message: `Personnel details updated successfully for ${account.fullName}`,
+      user: account
+    });
+  } catch (err) {
+    console.error('Update personnel error:', err);
+    res.status(500).json({ message: 'Server error updating personnel: ' + err.message });
   }
 });
 

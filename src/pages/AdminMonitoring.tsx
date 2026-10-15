@@ -4,7 +4,7 @@ import { Activity, Loader2, UserCheck, Users, ShieldCheck, CheckCircle2, Clock, 
 import { useAuth } from "../context/AuthContext"
 import { motion } from "framer-motion"
 
-const API_BASE = 'http://localhost:5000/api/admin';
+const API_BASE = 'http://10.152.129.95:5000/api/admin';
 
 export function AdminMonitoring() {
   const { token } = useAuth();
@@ -563,4 +563,5 @@ function AdminCommunityManagement({ token }: { token: string | null }) {
     </Card>
   );
 }
+
 

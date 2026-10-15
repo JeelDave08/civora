@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
-import { Users, UserPlus, KeyRound, Trash2, Search, Loader2, ShieldCheck, UserCheck, Briefcase, Mail, CheckCircle2, AlertCircle, X } from "lucide-react"
+import { Users, UserPlus, KeyRound, Trash2, Search, Loader2, ShieldCheck, UserCheck, Briefcase, Mail, CheckCircle2, AlertCircle, X, Edit3 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { motion, AnimatePresence } from "framer-motion"
 
-const API_BASE = 'http://localhost:5000/api/admin';
+const API_BASE = 'http://10.152.129.95:5000/api/admin';
 
 export function AdminPersonnel() {
   const { token } = useAuth();
@@ -17,6 +17,7 @@ export function AdminPersonnel() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [passwordModalUser, setPasswordModalUser] = useState<any | null>(null);
   const [deleteModalUser, setDeleteModalUser] = useState<any | null>(null);
+  const [editModalUser, setEditModalUser] = useState<any | null>(null);
 
   // Form states
   const [createForm, setCreateForm] = useState({
@@ -27,6 +28,12 @@ export function AdminPersonnel() {
     role: "supervisor",
     wardNumber: "",
     department: "Roads & Transport"
+  });
+  const [editForm, setEditForm] = useState({
+    fullName: "",
+    personalEmail: "",
+    department: "",
+    wardNumber: ""
   });
   const [newPassword, setNewPassword] = useState("");
 
@@ -97,6 +104,36 @@ export function AdminPersonnel() {
         fetchPersonnel();
       } else {
         setActionMessage({ type: 'error', text: data.message || 'Failed to create user' });
+      }
+    } catch (err) {
+      setActionMessage({ type: 'error', text: 'Server connection error' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editModalUser) return;
+
+    setActionLoading(true);
+    setActionMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/personnel/${editModalUser._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(editForm)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActionMessage({ type: 'success', text: data.message || 'Personnel details updated successfully!' });
+        setEditModalUser(null);
+        fetchPersonnel();
+      } else {
+        setActionMessage({ type: 'error', text: data.message || 'Failed to update user' });
       }
     } catch (err) {
       setActionMessage({ type: 'error', text: 'Server connection error' });
@@ -338,12 +375,37 @@ export function AdminPersonnel() {
                           </span>
                         </td>
                         <td className="py-4 px-6">
-                          <span className="font-semibold text-slate-700 bg-slate-100 px-3 py-1 rounded-lg">
-                            {user.city || 'General'}
-                          </span>
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className="font-semibold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-lg text-xs">
+                              {user.department || user.city || 'General'}
+                            </span>
+                            {user.wardNumber && (
+                              <span className="inline-flex items-center gap-1 font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md text-[10px]">
+                                Ward: {user.wardNumber}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-4 px-6 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            {isSupervisor && (
+                              <button
+                                onClick={() => {
+                                  setEditModalUser(user);
+                                  setEditForm({
+                                    fullName: user.fullName || '',
+                                    personalEmail: user.personalEmail || '',
+                                    department: user.department || user.city || '',
+                                    wardNumber: user.wardNumber || ''
+                                  });
+                                }}
+                                className="px-2.5 py-1.5 text-xs font-bold rounded-xl bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors flex items-center gap-1"
+                                title="Edit Ward or Department"
+                              >
+                                <Edit3 size={13} />
+                                Edit Ward
+                              </button>
+                            )}
                             <button
                               onClick={() => setPasswordModalUser(user)}
                               className="px-3 py-1.5 text-xs font-bold rounded-xl bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors flex items-center gap-1.5"
@@ -462,6 +524,18 @@ export function AdminPersonnel() {
                   )}
                 </select>
               </div>
+              {createForm.role === 'supervisor' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Ward Number (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 7"
+                    value={createForm.wardNumber || ''}
+                    onChange={(e) => setCreateForm({ ...createForm, wardNumber: e.target.value })}
+                    className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] text-sm"
+                  />
+                </div>
+              )}
               <button
                 type="submit"
                 disabled={actionLoading}
@@ -515,6 +589,94 @@ export function AdminPersonnel() {
         </div>
       )}
 
+      {/* EDIT USER / WARD MODAL */}
+      {editModalUser && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-100 overflow-hidden font-sans animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Edit3 className="text-[#4CC9B0]" size={20} /> Edit Personnel / Ward
+              </h3>
+              <button onClick={() => setEditModalUser(null)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateUser} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Ward Number</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Ward No. 12 or 12"
+                  value={editForm.wardNumber}
+                  onChange={(e) => setEditForm({ ...editForm, wardNumber: e.target.value })}
+                  className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] text-sm font-semibold text-slate-800"
+                />
+                <p className="text-[10px] text-slate-400 mt-1 font-medium">Used for direct live civic report email notifications</p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.fullName}
+                  onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                  className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Personal Email (Notifications Target)</label>
+                <input
+                  type="email"
+                  value={editForm.personalEmail}
+                  onChange={(e) => setEditForm({ ...editForm, personalEmail: e.target.value })}
+                  className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] text-sm font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Department</label>
+                <select
+                  value={editForm.department}
+                  onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
+                  className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#4CC9B0] bg-white text-sm font-semibold text-slate-800"
+                >
+                  {departments.length > 0 ? (
+                    departments.map((d: any) => (
+                      <option key={d._id} value={d.name}>{d.name}</option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Roads & Transport">Roads & Transport</option>
+                      <option value="Water Supply">Water Supply</option>
+                      <option value="Electricity">Electricity</option>
+                      <option value="Waste Management">Waste Management</option>
+                      <option value="Public Safety">Public Safety</option>
+                      <option value="Parks & Recreation">Parks & Recreation</option>
+                    </>
+                  )}
+                </select>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditModalUser(null)}
+                  className="flex-1 h-11 rounded-xl border border-slate-200 font-semibold text-slate-600 hover:bg-slate-50 transition-colors text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="flex-1 h-11 rounded-xl bg-[#4CC9B0] hover:bg-[#3bb59d] text-white font-bold transition-all text-xs flex items-center justify-center gap-2"
+                >
+                  {actionLoading ? <Loader2 size={16} className="animate-spin" /> : <Edit3 size={16} />}
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* DELETE USER MODAL */}
       {deleteModalUser && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -559,3 +721,4 @@ export function AdminPersonnel() {
     </motion.div>
   );
 }
+

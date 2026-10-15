@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { useAuth } from "../context/AuthContext"
-import { MapPin, Camera, Video, Upload, CheckCircle, ArrowRight, ArrowLeft, Navigation, X, RefreshCw, Loader2, Search, Target, Sparkles, AlertTriangle, Edit3, ShieldAlert, Users, ExternalLink } from "lucide-react"
+import { MapPin, Camera, Video, Upload, CheckCircle, ArrowRight, ArrowLeft, Navigation, X, RefreshCw, Loader2, Search, Target, AlertTriangle, ShieldAlert, Users, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Card, CardContent } from "@/components/ui/Card"
@@ -28,16 +28,6 @@ const DEFAULT_CENTER = { lat: 23.0225, lng: 72.5714 } // Ahmedabad City Center
 const categories = [
   "Road", "Garbage", "Water", "Electricity", "Street Light", "Drainage", "Building", "Other"
 ]
-
-export interface AiImageAnalysisResult {
-  detectedIssue: string
-  confidenceScore: number
-  suggestedCategory: string
-  suggestedPriority: string
-  suggestedDepartment: string
-  status: 'NOT_ANALYZED' | 'ANALYZING' | 'COMPLETED' | 'FAILED'
-  error?: string
-}
 
 // Custom interactive map picker marker icon
 const locationPinIcon = new L.DivIcon({
@@ -89,19 +79,16 @@ export function RaiseComplaint() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const searchTimeoutRef = useRef<any>(null)
 
-  // Camera state
+  // Camera & Live Photo state
   const [isCameraOpen, setIsCameraOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
-
-  // AI Analysis state per image URL
-  const [aiAnalysisMap, setAiAnalysisMap] = useState<Record<string, AiImageAnalysisResult>>({})
-  const [activeConfirmedAi, setActiveConfirmedAi] = useState<{
-    category: string
-    priority: string
-    department: string
-    suggestedSlaHours: number
-  } | null>(null)
+  const [liveCapturedBlob, setLiveCapturedBlob] = useState<Blob | null>(null)
+  const [liveCapturedPreviewUrl, setLiveCapturedPreviewUrl] = useState<string | null>(null)
+  const [isLivePhoto, setIsLivePhoto] = useState(false)
+  const [livePhotoCapturedAt, setLivePhotoCapturedAt] = useState<string | null>(null)
+  const [wardNumber, setWardNumber] = useState("")
+  const [cameraError, setCameraError] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     category: "",
@@ -114,105 +101,15 @@ export function RaiseComplaint() {
     images: [] as string[]
   })
 
-  // Trigger AI Image Analysis for a Cloudinary image URL
-  const handleAnalyzeImage = async (url: string) => {
-    // Return early if already analyzing
-    if (aiAnalysisMap[url]?.status === 'ANALYZING') return
-
-    setAiAnalysisMap(prev => ({
-      ...prev,
-      [url]: {
-        detectedIssue: '',
-        confidenceScore: 0,
-        suggestedCategory: '',
-        suggestedPriority: '',
-        suggestedDepartment: '',
-        status: 'ANALYZING'
-      }
-    }))
-
-    try {
-      const res = await fetch("http://localhost:5000/api/citizen/complaints/analyze-image", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ imageUrl: url })
-      })
-
-      const data = await res.json()
-
-      if (res.ok && data.success) {
-        setAiAnalysisMap(prev => ({
-          ...prev,
-          [url]: {
-            detectedIssue: data.analysis.detectedIssue,
-            confidenceScore: data.analysis.confidenceScore,
-            suggestedCategory: data.analysis.suggestedCategory,
-            suggestedPriority: data.analysis.suggestedPriority,
-            suggestedDepartment: data.analysis.suggestedDepartment,
-            status: 'COMPLETED'
-          }
-        }))
-      } else {
-        setAiAnalysisMap(prev => ({
-          ...prev,
-          [url]: {
-            detectedIssue: 'Unknown Civic Issue',
-            confidenceScore: 0,
-            suggestedCategory: 'Other',
-            suggestedPriority: 'Medium',
-            suggestedDepartment: 'General Civic Admin',
-            status: 'FAILED',
-            error: data.message || 'AI analysis temporarily unavailable'
-          }
-        }))
-      }
-    } catch (err: any) {
-      setAiAnalysisMap(prev => ({
-        ...prev,
-        [url]: {
-          detectedIssue: 'Unknown Civic Issue',
-          confidenceScore: 0,
-          suggestedCategory: 'Other',
-          suggestedPriority: 'Medium',
-          suggestedDepartment: 'General Civic Admin',
-          status: 'FAILED',
-          error: 'Network error analyzing photo'
-        }
-      }))
-    }
-  }
-
-  // Apply AI Suggestion to Form State
-  const handleApplyAiSuggestion = (url: string) => {
-    const analysis = aiAnalysisMap[url]
-    if (!analysis || analysis.status !== 'COMPLETED') return
-
-    setFormData(prev => ({
-      ...prev,
-      category: analysis.suggestedCategory,
-      priority: analysis.suggestedPriority,
-      department: analysis.suggestedDepartment
-    }))
-
-    setActiveConfirmedAi({
-      category: analysis.suggestedCategory,
-      priority: analysis.suggestedPriority,
-      department: analysis.suggestedDepartment,
-      suggestedSlaHours: analysis.suggestedPriority === 'Critical' ? 12 : analysis.suggestedPriority === 'High' ? 24 : 48
-    })
-
-    alert(`AI Suggestions applied! Category set to "${analysis.suggestedCategory}" & Priority set to "${analysis.suggestedPriority}".`)
-  }
-
   // Start Webcam Stream
   const openCamera = async () => {
     if (formData.images.length >= 3) {
       alert("You can upload a maximum of 3 images per complaint.")
       return
     }
+    setCameraError(null)
+    setLiveCapturedPreviewUrl(null)
+    setLiveCapturedBlob(null)
     try {
       setIsCameraOpen(true)
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -222,9 +119,11 @@ export function RaiseComplaint() {
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Camera access error:", err)
-      alert("Unable to access camera. Please allow camera permissions or upload an image file.")
+      const errText = "Camera permission is required to take a Live Photo."
+      setCameraError(errText)
+      alert(errText)
       setIsCameraOpen(false)
     }
   }
@@ -235,11 +134,16 @@ export function RaiseComplaint() {
       stream.getTracks().forEach(track => track.stop())
       setStream(null)
     }
+    if (liveCapturedPreviewUrl) {
+      URL.revokeObjectURL(liveCapturedPreviewUrl)
+    }
+    setLiveCapturedPreviewUrl(null)
+    setLiveCapturedBlob(null)
     setIsCameraOpen(false)
   }
 
-  // Capture Photo from Webcam Stream
-  const capturePhoto = async () => {
+  // Capture Photo from Webcam Stream (creates preview before uploading)
+  const capturePhoto = () => {
     if (!videoRef.current) return
     const video = videoRef.current
     const canvas = document.createElement("canvas")
@@ -249,34 +153,86 @@ export function RaiseComplaint() {
     if (!ctx) return
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-    // Convert canvas to Blob
-    canvas.toBlob(async (blob) => {
+    canvas.toBlob((blob) => {
       if (!blob) return
-      stopCamera()
-      setIsUploading(true)
-
-      const file = new File([blob], `live_camera_capture_${Date.now()}.jpg`, { type: "image/jpeg" })
-      const data = new FormData()
-      data.append("file", file)
-      data.append("upload_preset", "civora")
-      data.append("cloud_name", "racerjru")
-
-      try {
-        const res = await fetch("https://api.cloudinary.com/v1_1/racerjru/image/upload", {
-          method: "POST",
-          body: data
-        })
-        const uploadedImage = await res.json()
-        if (uploadedImage.secure_url) {
-          setFormData(prev => ({ ...prev, images: [...prev.images, uploadedImage.secure_url].slice(0, 3) }))
-          handleAnalyzeImage(uploadedImage.secure_url)
-        }
-      } catch (err) {
-        console.error("Error uploading camera capture:", err)
-      } finally {
-        setIsUploading(false)
-      }
+      const previewUrl = URL.createObjectURL(blob)
+      setLiveCapturedBlob(blob)
+      setLiveCapturedPreviewUrl(previewUrl)
     }, "image/jpeg", 0.9)
+  }
+
+  // Retake photo: clear captured preview and restart camera stream
+  const retakePhoto = async () => {
+    if (liveCapturedPreviewUrl) {
+      URL.revokeObjectURL(liveCapturedPreviewUrl)
+    }
+    setLiveCapturedPreviewUrl(null)
+    setLiveCapturedBlob(null)
+    if (!stream) {
+      await openCamera()
+    }
+  }
+
+  // Use captured live photo: uploads to Cloudinary & captures GPS
+  const useCapturedPhoto = async () => {
+    if (!liveCapturedBlob) return
+
+    const timestamp = new Date().toISOString()
+    setIsLivePhoto(true)
+    setLivePhotoCapturedAt(timestamp)
+
+    // Automatically trigger GPS location detection for the live photo
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude
+          const lng = position.coords.longitude
+          await fetchAddressFromCoords(lat, lng)
+        },
+        (locErr) => {
+          console.warn("Location permission warning:", locErr)
+          alert("Current location permission is required for the Live Photo location feature. You can still set your location manually on the map.")
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      )
+    } else {
+      alert("Geolocation is not supported by your browser.")
+    }
+
+    // Stop camera and upload blob
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop())
+      setStream(null)
+    }
+    setIsCameraOpen(false)
+    setIsUploading(true)
+
+    const file = new File([liveCapturedBlob], `live_camera_capture_${Date.now()}.jpg`, { type: "image/jpeg" })
+    const data = new FormData()
+    data.append("file", file)
+    data.append("upload_preset", "civora")
+    data.append("cloud_name", "racerjru")
+
+    try {
+      const res = await fetch("https://api.cloudinary.com/v1_1/racerjru/image/upload", {
+        method: "POST",
+        body: data
+      })
+      const uploadedImage = await res.json()
+      if (uploadedImage.secure_url) {
+        setFormData(prev => ({ ...prev, images: [...prev.images, uploadedImage.secure_url].slice(0, 3) }))
+      }
+    } catch (err) {
+      console.error("Error uploading camera capture:", err)
+      alert("Error uploading live photo. Please try again.")
+    } finally {
+      if (liveCapturedPreviewUrl) {
+        URL.revokeObjectURL(liveCapturedPreviewUrl)
+      }
+      setLiveCapturedPreviewUrl(null)
+      setLiveCapturedBlob(null)
+      setIsUploading(false)
+    }
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -310,8 +266,6 @@ export function RaiseComplaint() {
         }
       }
       setFormData(prev => ({ ...prev, images: [...prev.images, ...uploadedUrls].slice(0, 3) }))
-      // Trigger AI analysis automatically for each newly uploaded image
-      uploadedUrls.forEach(url => handleAnalyzeImage(url))
     } catch (err) {
       console.error("Error uploading to Cloudinary:", err)
     } finally {
@@ -327,7 +281,7 @@ export function RaiseComplaint() {
     }))
   }
 
-  // Reverse Geocode (lat/lng -> address string) via Backend LocationIQ Proxy
+  // Reverse Geocode (lat/lng -> address string) via Backend Mapbox Proxy
   const fetchAddressFromCoords = async (lat: number, lng: number) => {
     if (import.meta.env.DEV) {
       console.log(`[GPS] latitude: ${lat}, longitude: ${lng}`);
@@ -335,38 +289,210 @@ export function RaiseComplaint() {
     setIsDetectingLocation(true);
     setFormData(prev => ({ ...prev, location: "📍 Detecting location..." }));
 
+    /**
+     * Build the most specific real street/building address available.
+     *
+     * Desired format:
+     *   [house_number], [building/apartment], [road/street], [locality/suburb], Rajkot, Gujarat - [postcode]
+     *
+     * Strict Priority:
+     *   house_number -> building/apartment -> road/street -> neighbourhood/suburb/locality -> city -> state -> postcode
+     *
+     * Administrative "county/taluka" is NEVER used as a street/locality address.
+     */
+    const cleanToken = (t: string) => (t ? String(t).trim().replace(/^,+|,+$/g, '').trim() : '');
+
+    const formatLocationAddress = (addr: Record<string, string>, displayName?: string): string | null => {
+      if (!addr && !displayName) return null;
+      addr = addr || {};
+
+      // 1. house_number
+      const houseNumber = cleanToken(addr.house_number || addr.street_number || '');
+
+      // 2. building / apartment / POI name
+      const building = cleanToken(
+        addr.building || addr.apartment || addr.flats || addr.residential_complex ||
+        addr.house_name || addr.commercial || addr.amenity || addr.office ||
+        addr.shop || addr.hotel || addr.hospital || addr.tourism || addr.leisure ||
+        addr.advertising_agency || addr.school || addr.university || addr.college ||
+        addr.bank || addr.restaurant || addr.cafe || addr.mall || addr.place_of_worship || ''
+      );
+
+      // 3. road / street name
+      const road = cleanToken(
+        addr.road || addr.street || addr.pedestrian || addr.footway ||
+        addr.path || addr.cycleway || addr.lane || addr.avenue || addr.boulevard || addr.highway || ''
+      );
+
+      // 4. neighbourhood / suburb / locality
+      const neighbourhood = cleanToken(addr.neighbourhood || addr.quarter || addr.allotments || '');
+      const suburb = cleanToken(addr.suburb || addr.residential || addr.hamlet || '');
+      const locality = cleanToken(addr.locality || addr.village || '');
+
+      const localityParts: string[] = [];
+      [neighbourhood, suburb, locality].forEach(loc => {
+        if (loc && !localityParts.some(p => p.toLowerCase() === loc.toLowerCase())) {
+          if (!road || !road.toLowerCase().includes(loc.toLowerCase())) {
+            localityParts.push(loc);
+          }
+        }
+      });
+      const area = localityParts.join(', ');
+
+      // 5. city (strictly city/town, NEVER county/taluka)
+      let city = cleanToken(addr.city || addr.town || addr.municipality || '');
+      if (!city) {
+        if (addr.state_district && !/taluka/i.test(addr.state_district)) {
+          city = cleanToken(addr.state_district);
+        } else {
+          city = 'Rajkot';
+        }
+      }
+
+      // 6. state
+      const state = cleanToken(addr.state || 'Gujarat');
+
+      // 7. postcode / PIN
+      let pin = cleanToken(addr.postcode || '');
+      if (!pin && displayName) {
+        const pinMatch = String(displayName).match(/\b(36\d{4})\b/);
+        if (pinMatch) pin = pinMatch[1];
+      }
+
+      // Assemble prioritized address parts:
+      // [house_number], [building], [road], [locality/suburb], [city], [state] - [pin]
+      const parts: string[] = [];
+
+      // 1. House Number
+      if (houseNumber) {
+        parts.push(houseNumber);
+      }
+
+      // 2. Building / Apartment / POI
+      if (building && building.toLowerCase() !== houseNumber.toLowerCase()) {
+        parts.push(building);
+      }
+
+      // 3. Road / Street
+      if (road) {
+        if (!building || !building.toLowerCase().includes(road.toLowerCase())) {
+          parts.push(road);
+        }
+      }
+
+      // 4. Locality / Suburb / Neighbourhood
+      if (area) {
+        const areaLower = area.toLowerCase();
+        const cityLower = city.toLowerCase();
+        if (areaLower !== cityLower) {
+          parts.push(area);
+        }
+      }
+
+      // 5. City
+      if (city) {
+        parts.push(city);
+      }
+
+      // 6. State + PIN
+      if (state && pin) {
+        parts.push(`${state} - ${pin}`);
+      } else if (state) {
+        parts.push(state);
+      } else if (pin) {
+        parts.push(pin);
+      }
+
+      return parts.length ? parts.join(', ') : null;
+    };
+
     try {
-      const response = await fetch(`http://localhost:5000/api/citizen/reverse-geocode?lat=${lat}&lng=${lng}`, {
+      const response = await fetch(`http://10.152.129.95:5000/api/citizen/reverse-geocode?lat=${lat}&lng=${lng}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (response.ok) {
         const data = await response.json();
+        if (import.meta.env.DEV) {
+          console.log('[BACKEND GEOCODE] response:', data);
+        }
         if (data.success && data.address) {
           setFormData(prev => ({ ...prev, location: data.address, lat, lng }));
           return;
         }
       }
 
-      // Direct fallback if backend proxy returns non-ok
-      const apiUrl = import.meta.env.VITE_GEOCODE_API_URL || "https://us1.locationiq.com/v1/reverse";
-      const apiKey = import.meta.env.VITE_GEOCODE_API_KEY || "pk.0c9741909440306217e5f3b924862636";
-      const directRes = await fetch(`${apiUrl}?key=${apiKey}&lat=${lat}&lon=${lng}&format=json`);
-      if (directRes.ok) {
-        const data = await directRes.json();
-        const addr = data.address || {};
-        const road = addr.road || addr.street || addr.pedestrian || addr.footway || "";
-        const neighbourhood = addr.neighbourhood || addr.suburb || addr.residential || addr.locality || "";
-        const city = addr.city || addr.town || addr.village || addr.municipality || addr.state_district || "";
-        const state = addr.state || "";
+      // Direct Mapbox fallback if backend proxy fails
+      const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN || import.meta.env.VITE_GEOCODE_API_KEY;
+      try {
+        const directRes = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxToken}`);
+        if (directRes.ok) {
+          const mbData = await directRes.json();
+          const firstFeature = mbData.features && mbData.features[0];
+          if (firstFeature) {
+            const houseNumber = cleanToken(firstFeature.address || '');
+            const streetOrPoi = cleanToken(firstFeature.text || '');
+            let neighbourhood = '';
+            let locality = '';
+            let city = '';
+            let state = '';
+            let postcode = '';
 
-        let formatted = "";
-        if (road && neighbourhood && city) formatted = `${road}, ${neighbourhood}, ${city}`;
-        else if (road && city) formatted = `${road}, ${city}`;
-        else if (neighbourhood && city) formatted = `${neighbourhood}, ${city}`;
-        else if (city && state) formatted = `${city}, ${state}`;
-        else formatted = data.display_name || `📍 GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            if (Array.isArray(firstFeature.context)) {
+              firstFeature.context.forEach((ctx: any) => {
+                const id = ctx.id || '';
+                const text = cleanToken(ctx.text || '');
+                if (id.startsWith('neighborhood')) neighbourhood = text;
+                else if (id.startsWith('locality'))    locality    = text;
+                else if (id.startsWith('place'))       city        = text;
+                else if (id.startsWith('region'))      state       = text;
+                else if (id.startsWith('postcode'))    postcode    = text;
+              });
+            }
 
+            if (!city)  city  = 'Rajkot';
+            if (!state) state = 'Gujarat';
+
+            const localityParts: string[] = [];
+            [neighbourhood, locality].forEach(l => {
+              if (l && !localityParts.includes(l) && l.toLowerCase() !== city.toLowerCase()) {
+                localityParts.push(l);
+              }
+            });
+            const localityStr = localityParts.join(', ');
+
+            const parts: string[] = [];
+            if (houseNumber && streetOrPoi) parts.push(`${houseNumber}, ${streetOrPoi}`);
+            else if (streetOrPoi)           parts.push(streetOrPoi);
+            else if (houseNumber)           parts.push(houseNumber);
+
+            if (localityStr) parts.push(localityStr);
+            if (city)        parts.push(city);
+            if (state && postcode)  parts.push(`${state} - ${postcode}`);
+            else if (state)         parts.push(state);
+            else if (postcode)      parts.push(postcode);
+
+            const formatted = parts.length ? parts.join(', ') : (firstFeature.place_name || `📍 GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+            setFormData(prev => ({ ...prev, location: formatted, lat, lng }));
+            return;
+          }
+        }
+      } catch (mbErr) {
+        console.warn('Mapbox direct reverse error:', mbErr);
+      }
+
+      // Nominatim last-resort fallback with format=jsonv2, addressdetails=1, zoom=18, accept-language=en
+      const nomRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1&zoom=18&accept-language=en`, {
+        headers: { 'User-Agent': 'CivoraApp/1.0' }
+      });
+      if (nomRes.ok) {
+        const nomData = await nomRes.json();
+        const addr = nomData.address || {};
+        if (import.meta.env.DEV) {
+          console.log('[NOMINATIM FALLBACK] display_name:', nomData.display_name);
+          console.log('[NOMINATIM FALLBACK] address:', addr);
+        }
+        const formatted = formatLocationAddress(addr, nomData.display_name) || `📍 GPS: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
         setFormData(prev => ({ ...prev, location: formatted, lat, lng }));
         return;
       }
@@ -380,24 +506,25 @@ export function RaiseComplaint() {
     }
   }
 
+
   // Forward Geocode (Search text address -> lat/lng & redirect map position)
   const handleAddressSearch = async (customQuery?: string, keepUserText = false) => {
     const query = (customQuery !== undefined ? customQuery : formData.location).trim()
     if (!query) return
     setIsGeocodingText(true)
     try {
-      const apiKey = import.meta.env.VITE_GEOCODE_API_KEY || "pk.0c9741909440306217e5f3b924862636"
-      const response = await fetch(`https://us1.locationiq.com/v1/search?key=${apiKey}&q=${encodeURIComponent(query)}&format=json&limit=1`)
-      if (response.ok) {
-        const data = await response.json()
-        if (data && data.length > 0) {
-          const lat = parseFloat(data[0].lat)
-          const lng = parseFloat(data[0].lon)
+      const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN || import.meta.env.VITE_GEOCODE_API_KEY
+      const mbRes = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxToken}&country=IN&proximity=70.8022,22.3039&limit=1`)
+      if (mbRes.ok) {
+        const mbData = await mbRes.json()
+        if (mbData && mbData.features && mbData.features.length > 0) {
+          const feat = mbData.features[0]
+          const [lon, lat] = feat.center
           setFormData(prev => ({
             ...prev,
             lat,
-            lng,
-            location: keepUserText ? prev.location : (data[0].display_name || query)
+            lng: lon,
+            location: keepUserText ? prev.location : (feat.place_name || query)
           }))
           setIsGeocodingText(false)
           return
@@ -467,7 +594,7 @@ export function RaiseComplaint() {
   const createComplaintDoc = async () => {
     setIsSubmitting(true)
     try {
-      const res = await fetch("http://localhost:5000/api/citizen/complaints", {
+      const res = await fetch("http://10.152.129.95:5000/api/citizen/complaints", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -480,23 +607,14 @@ export function RaiseComplaint() {
           priority: formData.priority,
           department: formData.department || undefined,
           location: formData.location,
+          ward: wardNumber || undefined,
+          isLivePhoto: isLivePhoto,
+          livePhotoCapturedAt: livePhotoCapturedAt || undefined,
           lat: formData.lat,
           lng: formData.lng,
           imageUrl: formData.images[0] || "",
           images: formData.images,
-          aiAnalysisStatus: activeConfirmedAi ? 'COMPLETED' : 'NOT_ANALYZED',
-          suggestedSlaHours: activeConfirmedAi ? activeConfirmedAi.suggestedSlaHours : null,
-          aiAnalysis: activeConfirmedAi ? {
-            category: activeConfirmedAi.category,
-            priority: activeConfirmedAi.priority,
-            department: activeConfirmedAi.department,
-            suggestedSlaHours: activeConfirmedAi.suggestedSlaHours,
-            confirmedByCitizen: true,
-            confirmedAt: new Date()
-          } : undefined,
-          aiProvider: 'OpenAI',
-          aiModel: 'gpt-4o-mini',
-          aiAnalysisVersion: '1.0'
+          aiAnalysisStatus: 'NOT_ANALYZED'
         })
       })
       const data = await res.json()
@@ -525,7 +643,7 @@ export function RaiseComplaint() {
     // Call Duplicate Check API
     try {
       console.log("[DUPLICATE CHECK] Starting duplicate detection for:", formData.category, formData.location)
-      const checkRes = await fetch("http://localhost:5000/api/citizen/complaints/check-duplicates", {
+      const checkRes = await fetch("http://10.152.129.95:5000/api/citizen/complaints/check-duplicates", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -536,6 +654,7 @@ export function RaiseComplaint() {
           description: formData.description,
           category: formData.category,
           priority: formData.priority,
+          ward: wardNumber || undefined,
           lat: formData.lat || 23.0225,
           lng: formData.lng || 72.5714,
           imageUrl: formData.images[0] || "",
@@ -579,7 +698,7 @@ export function RaiseComplaint() {
   const handleJoinExistingIssue = async (candidateRawId: string) => {
     setIsJoiningDuplicate(true)
     try {
-      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${candidateRawId}/join`, {
+      const res = await fetch(`http://10.152.129.95:5000/api/citizen/complaints/${candidateRawId}/join`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -763,6 +882,20 @@ export function RaiseComplaint() {
                       </Button>
                     </div>
 
+                    {/* Ward Number Configuration for Supervisor Dispatch */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-heading">Ward Number</label>
+                        <span className="text-xs text-muted-foreground">Configured for Ward Supervisor dispatch</span>
+                      </div>
+                      <Input
+                        value={wardNumber}
+                        onChange={(e) => setWardNumber(e.target.value)}
+                        placeholder="e.g. Ward No. 12 or 12"
+                        className="h-10 text-sm"
+                      />
+                    </div>
+
                     {/* Interactive Leaflet Map Picker */}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -812,187 +945,94 @@ export function RaiseComplaint() {
                       <span className="text-xs text-muted-foreground">Upload up to 3 photos as evidence</span>
                     </div>
 
-                    {/* Image Preview Grid with AI Analysis per photo */}
+                    {/* Image Preview Grid */}
                     {formData.images.length > 0 && (
-                      <div className="space-y-4 mb-4">
-                        {formData.images.map((url, idx) => {
-                          const aiState = aiAnalysisMap[url]
-                          const confidencePct = aiState ? Math.round(aiState.confidenceScore * 100) : 0
-                          let confidenceBadgeColor = "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
-                          if (confidencePct < 70) {
-                            confidenceBadgeColor = "bg-amber-500/10 text-amber-600 border-amber-500/30"
-                          }
-
-                          return (
-                            <div key={idx} className="rounded-xl border border-border bg-card p-4 space-y-3">
-                              <div className="flex flex-col sm:flex-row items-start gap-4">
-                                <div className="relative rounded-lg overflow-hidden border border-border w-28 h-28 shrink-0 bg-black/5">
-                                  <img src={url} alt={`Evidence ${idx + 1}`} className="w-full h-full object-cover" />
-                                  <button
-                                    type="button"
-                                    onClick={() => removeImage(idx)}
-                                    className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow"
-                                    title="Remove photo"
-                                  >
-                                    <X size={12} />
-                                  </button>
-                                  <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-mono">
-                                    Photo #{idx + 1}
-                                  </span>
-                                </div>
-
-                                <div className="flex-1 w-full space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <h4 className="text-xs font-semibold text-heading flex items-center gap-1.5">
-                                      <Sparkles size={14} className="text-primary animate-pulse" />
-                                      AI Photo Analysis
-                                    </h4>
-
-                                    {!aiState || aiState.status === 'NOT_ANALYZED' ? (
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        onClick={() => handleAnalyzeImage(url)}
-                                        className="h-8 text-xs bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 gap-1.5"
-                                      >
-                                        <Sparkles size={12} /> 🤖 Analyze Photo
-                                      </Button>
-                                    ) : null}
-                                  </div>
-
-                                  {/* AI Loading State */}
-                                  {aiState?.status === 'ANALYZING' && (
-                                    <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 flex items-center gap-3 text-xs text-primary font-medium">
-                                      <Loader2 size={16} className="animate-spin text-primary" />
-                                      <span>🤖 Analyzing photo issue with AI... Please wait.</span>
-                                    </div>
-                                  )}
-
-                                  {/* AI Completed State */}
-                                  {aiState?.status === 'COMPLETED' && (
-                                    <div className="p-3.5 rounded-xl bg-gradient-to-br from-primary/5 via-background to-secondary/5 border border-primary/20 space-y-2 text-xs">
-                                      <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                          <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">Detected Issue</span>
-                                          <span className="font-bold text-heading">{aiState.detectedIssue}</span>
-                                        </div>
-                                        <div>
-                                          <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">AI Signal Confidence</span>
-                                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${confidenceBadgeColor}`}>
-                                            {confidencePct}% ({confidencePct >= 90 ? 'High' : confidencePct >= 70 ? 'Moderate' : 'Low'})
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">Suggested Category</span>
-                                          <span className="font-medium text-heading">{aiState.suggestedCategory}</span>
-                                        </div>
-                                        <div>
-                                          <span className="text-muted-foreground block text-[10px] uppercase font-bold tracking-wider">Suggested Priority</span>
-                                          <span className="font-medium text-heading">{aiState.suggestedPriority}</span>
-                                        </div>
-                                      </div>
-
-                                      {confidencePct < 70 && (
-                                        <div className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-1 font-medium">
-                                          <AlertTriangle size={12} />
-                                          ⚠️ AI is not confident about this image. Please verify manually.
-                                        </div>
-                                      )}
-
-                                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50">
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          onClick={() => handleApplyAiSuggestion(url)}
-                                          className="h-7 text-xs bg-emerald-600 text-white hover:bg-emerald-700 gap-1 px-2.5"
-                                        >
-                                          <CheckCircle size={12} /> ✅ Use AI Suggestion
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() => setStep(1)}
-                                          className="h-7 text-xs gap-1 px-2 text-muted-foreground"
-                                        >
-                                          <Edit3 size={12} /> ✏️ Edit Manually
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => {
-                                            setAiAnalysisMap(prev => ({
-                                              ...prev,
-                                              [url]: { ...prev[url], status: 'NOT_ANALYZED' }
-                                            }))
-                                          }}
-                                          className="h-7 text-xs text-muted-foreground hover:text-foreground px-2"
-                                        >
-                                          Ignore
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* AI Failed State */}
-                                  {aiState?.status === 'FAILED' && (
-                                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
-                                      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-medium">
-                                        <AlertTriangle size={14} />
-                                        <span>⚠️ AI analysis is temporarily unavailable. You can continue manually.</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() => handleAnalyzeImage(url)}
-                                          className="h-7 text-[11px] gap-1 px-2 border-amber-500/30 text-amber-700 dark:text-amber-300"
-                                        >
-                                          <RefreshCw size={11} /> Try Again
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        })}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                        {formData.images.map((url, idx) => (
+                          <div key={idx} className="relative rounded-xl overflow-hidden border border-border bg-black/5 aspect-square group shadow-sm">
+                            <img src={url} alt={`Evidence ${idx + 1}`} className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => removeImage(idx)}
+                              className="absolute top-1.5 right-1.5 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow"
+                              title="Remove photo"
+                            >
+                              <X size={12} />
+                            </button>
+                            <span className="absolute bottom-1.5 left-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
+                              Photo #{idx + 1}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     )}
 
-                    {isCameraOpen ? (
-                      <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex flex-col items-center justify-center">
-                        <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                        <div className="absolute bottom-4 flex items-center gap-4 z-10">
-                          <Button onClick={capturePhoto} className="bg-primary text-white gap-2 shadow-lg">
-                            <Camera size={18} /> Snap Photo
-                          </Button>
-                          <Button variant="secondary" onClick={stopCamera} className="gap-2">
-                            <X size={18} /> Cancel
-                          </Button>
-                        </div>
+                    {/* Camera Error Alert */}
+                    {cameraError && (
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2">
+                        <AlertTriangle size={15} className="shrink-0" />
+                        <span>{cameraError} You can still upload photos from your device below.</span>
                       </div>
+                    )}
+
+                    {/* Camera Active View */}
+                    {isCameraOpen ? (
+                      liveCapturedPreviewUrl ? (
+                        /* Captured Photo Preview State: Retake or Use Photo */
+                        <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex flex-col items-center justify-center border-2 border-emerald-500/50 shadow-2xl">
+                          <img src={liveCapturedPreviewUrl} alt="Captured Live Photo" className="w-full h-full object-cover" />
+                          <div className="absolute top-3 left-3 bg-black/70 text-emerald-400 text-xs px-3 py-1 rounded-full flex items-center gap-1.5 backdrop-blur-sm border border-emerald-500/30 font-medium">
+                            <Camera size={13} /> Live Photo Captured
+                          </div>
+                          <div className="absolute bottom-4 flex items-center gap-3 z-10 bg-black/75 px-4 py-2 rounded-2xl backdrop-blur-md">
+                            <Button type="button" onClick={retakePhoto} variant="secondary" className="gap-1.5 font-bold text-xs h-9">
+                              <RefreshCw size={13} /> Retake
+                            </Button>
+                            <Button type="button" onClick={useCapturedPhoto} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 font-bold text-xs h-9 shadow-lg">
+                              <CheckCircle size={14} /> Use Photo
+                            </Button>
+                            <Button type="button" variant="ghost" onClick={stopCamera} className="text-white/80 hover:text-white text-xs h-9">
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Live Camera Stream Preview */
+                        <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex flex-col items-center justify-center border border-border shadow-xl">
+                          <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                          <div className="absolute top-3 left-3 bg-red-600/90 text-white text-xs px-3 py-1 rounded-full flex items-center gap-1.5 font-bold animate-pulse">
+                            <span className="w-2 h-2 rounded-full bg-white"></span> Live Camera
+                          </div>
+                          <div className="absolute bottom-4 flex items-center gap-3 z-10 bg-black/70 px-4 py-2 rounded-2xl backdrop-blur-md">
+                            <Button type="button" onClick={capturePhoto} className="bg-primary hover:bg-primary/90 text-white gap-2 font-bold text-xs h-9 shadow-lg">
+                              <Camera size={16} /> Capture Photo
+                            </Button>
+                            <Button type="button" variant="secondary" onClick={stopCamera} className="gap-1.5 text-xs h-9 font-semibold">
+                              <X size={14} /> Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )
                     ) : formData.images.length < 3 && (
                       <div className="grid sm:grid-cols-2 gap-4">
-                        {/* Live Camera Button */}
+                        {/* Take Live Photo Button */}
                         <div 
                           onClick={openCamera}
-                          className="border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 rounded-xl p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
+                          className="border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 rounded-2xl p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 group hover:border-primary shadow-sm"
                         >
-                          <div className="h-10 w-10 rounded-full bg-primary/20 text-primary flex items-center justify-center">
-                            <Camera size={20} />
+                          <div className="h-11 w-11 rounded-2xl bg-primary/20 text-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                            <Camera size={22} />
                           </div>
-                          <span className="font-semibold text-xs text-heading">Click Live Photo</span>
-                          <span className="text-[11px] text-muted-foreground">Webcam or mobile camera</span>
+                          <div className="space-y-0.5">
+                            <span className="font-bold text-xs text-heading block">📷 Take Live Photo</span>
+                            <span className="text-[11px] text-muted-foreground block">Camera capture with real-time GPS location</span>
+                          </div>
                         </div>
 
-                        {/* File Upload Option */}
+                        {/* Upload Photo Button */}
                         <div 
                           onClick={() => fileInputRef.current?.click()}
-                          className="border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/50 rounded-xl p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2"
+                          className="border-2 border-dashed border-border hover:border-secondary/60 hover:bg-muted/50 rounded-2xl p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 group shadow-sm"
                         >
                           <input 
                             type="file" 
@@ -1002,8 +1042,12 @@ export function RaiseComplaint() {
                             accept="image/*"
                             multiple
                           />
-                          <div className="h-10 w-10 rounded-full bg-secondary/10 text-secondary flex items-center justify-center">
-                            <Upload size={20} />
+                          <div className="h-11 w-11 rounded-2xl bg-secondary/10 text-secondary flex items-center justify-center group-hover:scale-105 transition-transform">
+                            <Upload size={22} />
+                          </div>
+                          <div className="space-y-0.5">
+                            <span className="font-bold text-xs text-heading block">🖼 Upload Photo</span>
+                            <span className="text-[11px] text-muted-foreground block">Select photos from device gallery</span>
                           </div>
                         </div>
                       </div>
@@ -1172,4 +1216,5 @@ export function RaiseComplaint() {
     </div>
   )
 }
+
 

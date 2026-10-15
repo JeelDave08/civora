@@ -1,12 +1,15 @@
+import { useState } from "react"
 import { Link } from "react-router-dom"
 import { motion } from "framer-motion"
 import { 
   Sparkles, Play, MapPin, Scale, Trash2, Droplet, 
   ClipboardList, Clock, Bell, ShieldCheck, Star, 
-  User, UserPlus, Megaphone, FileText, CheckCircle2, Settings, BarChart3
+  User, UserPlus, Megaphone, FileText, CheckCircle2, Settings, BarChart3, Menu, X
 } from "lucide-react"
 
 export function Landing() {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
   return (
     <div className="min-h-screen bg-[#fafbfc] font-sans text-slate-900 overflow-x-hidden">
       {/* Navbar */}
@@ -45,14 +48,48 @@ export function Landing() {
             Register
           </Link>
         </div>
+        
+        {/* Mobile Menu Button */}
+        <button 
+          className="lg:hidden p-2 text-slate-600 hover:text-emerald-600 transition-colors"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        >
+          {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
       </nav>
+
+      {/* Mobile Menu Dropdown */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 top-[80px] z-40 bg-white border-t border-slate-100 flex flex-col p-6 overflow-y-auto">
+          <div className="flex flex-col gap-6">
+            <Link to="/" className="text-lg font-semibold text-emerald-600" onClick={() => setIsMobileMenuOpen(false)}>Home</Link>
+            <Link to="/services" className="text-lg font-semibold text-slate-700" onClick={() => setIsMobileMenuOpen(false)}>Services</Link>
+            <Link to="/track-complaint" className="text-lg font-semibold text-slate-700" onClick={() => setIsMobileMenuOpen(false)}>Track Complaint</Link>
+            <Link to="/about" className="text-lg font-semibold text-slate-700" onClick={() => setIsMobileMenuOpen(false)}>About Us</Link>
+            <Link to="/contact" className="text-lg font-semibold text-slate-700" onClick={() => setIsMobileMenuOpen(false)}>Contact</Link>
+            
+            <div className="h-[1px] bg-slate-100 my-2"></div>
+            
+            <div className="flex flex-col gap-4">
+              <Link to="/login" className="flex items-center justify-center gap-2 px-5 py-3 rounded-md border border-emerald-600 text-emerald-600 font-semibold text-base" onClick={() => setIsMobileMenuOpen(false)}>
+                <User size={20} />
+                Login
+              </Link>
+              <Link to="/register" className="flex items-center justify-center gap-2 px-5 py-3 rounded-md bg-emerald-600 text-white font-semibold text-base" onClick={() => setIsMobileMenuOpen(false)}>
+                <UserPlus size={20} />
+                Register
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hero Section */}
       <section className="relative pt-[80px] min-h-[90vh] flex items-center bg-white">
         {/* Right side background image overlay */}
-        <div className="absolute top-0 right-0 w-[60%] h-full z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-white via-white/80 to-transparent z-10 w-[40%]"></div>
-          <div className="absolute inset-0 bg-gradient-to-t from-white via-transparent to-transparent z-10 h-full"></div>
+        <div className="absolute top-0 right-0 w-full lg:w-[60%] h-full z-0 opacity-15 lg:opacity-100 pointer-events-none">
+          <div className="absolute inset-0 bg-gradient-to-r from-white lg:via-white/80 to-transparent z-10 w-full lg:w-[40%]"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-white lg:via-transparent to-transparent z-10 h-full"></div>
           <img src="/city_bg.png" alt="City Background" className="w-full h-full object-cover object-right" />
         </div>
 
@@ -66,7 +103,7 @@ export function Landing() {
               AI-Powered Civic Management
             </div>
 
-            <h1 className="text-[56px] lg:text-[72px] font-bold text-slate-900 leading-[1.1] tracking-tight">
+            <h1 className="text-5xl md:text-[56px] lg:text-[72px] font-bold text-slate-900 leading-[1.1] tracking-tight">
               Building Smarter Cities,<br />
               <span className="text-emerald-600">Together.</span>
             </h1>
@@ -87,7 +124,7 @@ export function Landing() {
             </div>
 
             {/* Stats Row */}
-            <div className="flex items-center gap-8 pt-8">
+            <div className="flex flex-wrap items-center gap-6 lg:gap-8 pt-8">
               <div className="flex flex-col items-start gap-1">
                 <div className="flex items-center gap-2 text-emerald-600">
                   <div className="p-1.5 bg-emerald-50 rounded-md">
@@ -98,7 +135,7 @@ export function Landing() {
                 <div className="text-[13px] font-medium text-slate-500">Complaints Resolved</div>
               </div>
 
-              <div className="w-[1px] h-12 bg-slate-200"></div>
+              <div className="hidden md:block w-[1px] h-12 bg-slate-200"></div>
 
               <div className="flex flex-col items-start gap-1">
                 <div className="flex items-center gap-2 text-emerald-600">
@@ -110,7 +147,7 @@ export function Landing() {
                 <div className="text-[13px] font-medium text-slate-500">Active Citizens</div>
               </div>
 
-              <div className="w-[1px] h-12 bg-slate-200"></div>
+              <div className="hidden md:block w-[1px] h-12 bg-slate-200"></div>
 
               <div className="flex flex-col items-start gap-1">
                 <div className="flex items-center gap-2 text-emerald-600">
@@ -122,7 +159,7 @@ export function Landing() {
                 <div className="text-[13px] font-medium text-slate-500">Departments</div>
               </div>
               
-              <div className="w-[1px] h-12 bg-slate-200"></div>
+              <div className="hidden md:block w-[1px] h-12 bg-slate-200"></div>
 
               <div className="flex flex-col items-start gap-1">
                 <div className="flex items-center gap-2 text-emerald-600">

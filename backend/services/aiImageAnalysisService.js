@@ -94,22 +94,41 @@ You MUST output raw JSON in this exact structure:
 
   // 2. TRY GEMINI VISION API (if OpenAI unavailable or key invalid)
   if (!rawContent && geminiKey && geminiKey !== 'your_gemini_api_key') {
-    try {
-      console.log('[AI-Service] Sending image to Gemini Vision API (gemini-3.6-flash)...');
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const imageResp = await fetch(imageUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-      });
-      
-      if (!imageResp.ok) {
-        throw new Error(`Failed to fetch image from Cloudinary URL (HTTP ${imageResp.status})`);
-      }
+    // gemini-3.8-flash is the only model accessible with the current key.
+    // Uses exponential backoff for 503 "high demand" responses.
+    const GEMINI_MODEL = 'gemini-3.8-flash';
+    const MAX_RETRIES = 5;  // up to 5 attempts on 503
+    const BASE_DELAY_MS = 3000; // 3s, 6s, 12s, 24s between retries
+    const GEMINI_TIMEOUT_MS = 25000;
+    let lastGeminiError = null;
 
-      const arrayBuffer = await imageResp.arrayBuffer();
-      const base64Data = Buffer.from(arrayBuffer).toString('base64');
-      const mimeType = imageResp.headers.get('content-type') || 'image/jpeg';
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`[AI-Service] Gemini Vision (${GEMINI_MODEL}), attempt ${attempt}/${MAX_RETRIES}...`);
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
 
-      const promptText = `
+        // Fetch image from Cloudinary with timeout guard
+        const fetchController = new AbortController();
+        const fetchTimeout = setTimeout(() => fetchController.abort(), GEMINI_TIMEOUT_MS);
+        let imageResp;
+        try {
+          imageResp = await fetch(imageUrl, {
+            signal: fetchController.signal,
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+          });
+        } finally {
+          clearTimeout(fetchTimeout);
+        }
+
+        if (!imageResp.ok) {
+          throw new Error(`Cloudinary image fetch failed (HTTP ${imageResp.status} ${imageResp.statusText})`);
+        }
+
+        const arrayBuffer = await imageResp.arrayBuffer();
+        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+        const mimeType = imageResp.headers.get('content-type') || 'image/jpeg';
+
+        const promptText = `
 You are an expert civic infrastructure vision classifier for the CIVORA Smart City Platform.
 Examine the provided image carefully and identify visible civic issues such as road potholes, road damage, garbage accumulation, overflowing bins, water leakage, pipe burst, broken street light, damaged electric pole, exposed wires, drain blockage, drain overflow, etc.
 
@@ -122,7 +141,7 @@ If no civic issue is found or image is non-civic:
 - set suggestedCategory to "Other"
 - set suggestedPriority to "Low"
 
-You MUST output raw JSON matching:
+You MUST output raw JSON matching this exact structure (no extra text):
 {
   "detectedIssue": "Short title describing detected issue",
   "confidenceScore": 0.88,
@@ -131,23 +150,65 @@ You MUST output raw JSON matching:
 }
 `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { inlineData: { data: base64Data, mimeType } },
-              { text: promptText }
+        // Wrap generateContent with a timeout so the server never hangs
+        const genController = new AbortController();
+        const genTimeout = setTimeout(() => genController.abort(), GEMINI_TIMEOUT_MS);
+        let response;
+        try {
+          response = await ai.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { inlineData: { data: base64Data, mimeType } },
+                  { text: promptText }
+                ]
+              }
             ]
-          }
-        ]
-      });
+          });
+        } finally {
+          clearTimeout(genTimeout);
+        }
 
-      rawContent = response.text || null;
-      if (rawContent) providerUsed = 'Gemini (gemini-3.6-flash)';
-    } catch (geminiErr) {
-      console.warn('[AI-Service] Gemini Vision call failed:', geminiErr.message);
+        rawContent = response.text || null;
+        if (rawContent) {
+          providerUsed = `Gemini (${GEMINI_MODEL})`;
+          break; // success
+        }
+        // Empty response - treat like a soft failure and retry
+        throw new Error('Gemini returned empty response');
+
+      } catch (geminiErr) {
+        lastGeminiError = geminiErr;
+        const errMsg = geminiErr.message || '';
+        const is503 = errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand');
+        const isRetryable = is503 || errMsg.includes('timeout') || errMsg.includes('abort') || errMsg.includes('network');
+
+        if (isRetryable && attempt < MAX_RETRIES) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1); // 3s, 6s, 12s, 24s
+          console.warn(`[AI-Service] Gemini ${is503 ? '503 high demand' : 'network error'}, retry in ${delay/1000}s (attempt ${attempt}/${MAX_RETRIES})...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        // Non-retryable or exhausted retries — log full error then stop
+        console.error(`[AI-Service] Gemini failed after ${attempt} attempt(s):`, errMsg.substring(0, 300));
+        break;
+      }
+    }
+
+    // Surface the real Gemini error in the thrown message so the route can propagate it
+    if (!rawContent && lastGeminiError) {
+      const em = lastGeminiError.message || '';
+      const is503 = em.includes('503') || em.includes('UNAVAILABLE');
+      // Re-attach real error as a property so the route can read it
+      const wrappedErr = new Error(
+        is503
+          ? `Gemini API is overloaded (503). The model "${GEMINI_MODEL}" is temporarily experiencing high demand. Please retry in a few minutes.`
+          : `Gemini API error: ${em.substring(0, 200)}`
+      );
+      wrappedErr.geminiStatus = is503 ? 503 : 500;
+      throw wrappedErr;
     }
   }
 

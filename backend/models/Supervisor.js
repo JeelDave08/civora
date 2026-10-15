@@ -7,9 +7,11 @@ const supervisorSchema = new mongoose.Schema({
   password: { type: String, required: true },
   department: { type: String, default: 'General' },
   city: { type: String, default: '' },
+  wardNumber: { type: String, default: '' },
   phone: { type: String, default: '' },
   profileImage: { type: String, default: '' },
   isActive: { type: Boolean, default: true },
+  isDemo: { type: Boolean, default: false },
   role: { type: String, default: 'supervisor' },
   createdAt: { type: Date, default: Date.now },
 });

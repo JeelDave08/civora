@@ -41,6 +41,13 @@ const complaintSchema = new mongoose.Schema({
   timeSpentSeconds: { type: Number, default: 0 },
   isTimerRunning: { type: Boolean, default: false },
   department: { type: String },
+  ward: { type: String, default: '' },
+  wardNumber: { type: Number, default: null },
+  wardDetectionMethod: { type: String, default: null },
+  wardDetectionStatus: { type: String, default: 'PENDING' },
+  wardDetectedAt: { type: Date, default: null },
+  isLivePhoto: { type: Boolean, default: false },
+  livePhotoCapturedAt: { type: Date, default: null },
   suggestedSlaHours: { type: Number, default: null },
   slaDueAt: { type: Date, default: null },
   aiAnalysisStatus: {

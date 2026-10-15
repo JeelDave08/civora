@@ -20,7 +20,7 @@ export function Notifications() {
   const fetchLiveCitizenNotifications = async () => {
     try {
       setLoading(true)
-      const res = await fetch("http://localhost:5000/api/citizen/complaints", {
+      const res = await fetch("http://10.152.129.95:5000/api/citizen/complaints", {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
@@ -293,3 +293,4 @@ export function Notifications() {
     </div>
   )
 }
+

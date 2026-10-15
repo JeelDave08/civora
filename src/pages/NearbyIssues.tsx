@@ -194,7 +194,7 @@ export function NearbyIssues() {
   useEffect(() => {
     if (!token) return
     setLoading(true)
-    fetch("http://localhost:5000/api/citizen/nearby-complaints", {
+    fetch("http://10.152.129.95:5000/api/citizen/nearby-complaints", {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
@@ -532,3 +532,4 @@ export function NearbyIssues() {
     </div>
   )
 }
+

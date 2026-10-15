@@ -113,7 +113,7 @@ export function MapPage() {
   const fetchComplaints = async () => {
     try {
       setLoading(true)
-      const res = await fetch("http://localhost:5000/api/admin/complaints?limit=200", {
+      const res = await fetch("http://10.152.129.95:5000/api/admin/complaints?limit=200", {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
@@ -129,7 +129,7 @@ export function MapPage() {
 
   const fetchPersonnel = async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/admin/personnel", {
+      const res = await fetch("http://10.152.129.95:5000/api/admin/personnel", {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
@@ -162,7 +162,7 @@ export function MapPage() {
     setIsAssigning(true)
     setAssignSuccess(false)
     try {
-      const res = await fetch(`http://localhost:5000/api/admin/complaints/${selectedComplaint._id}/assign`, {
+      const res = await fetch(`http://10.152.129.95:5000/api/admin/complaints/${selectedComplaint._id}/assign`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -182,18 +182,19 @@ export function MapPage() {
     }
   }
 
-  // Search locality via LocationIQ/OSM
+  // Search locality via Mapbox/OSM
   const handleSearchLocality = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!searchQuery.trim()) return
     setIsSearching(true)
     try {
-      const apiKey = import.meta.env.VITE_GEOCODE_API_KEY || "pk.0c9741909440306217e5f3b924862636"
-      const res = await fetch(`https://us1.locationiq.com/v1/search?key=${apiKey}&q=${encodeURIComponent(searchQuery)}&format=json&limit=1`)
+      const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN || import.meta.env.VITE_GEOCODE_API_KEY
+      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json?access_token=${mapboxToken}&country=IN&proximity=70.8022,22.3039&limit=1`)
       if (res.ok) {
         const data = await res.json()
-        if (data && data[0]) {
-          setMapCenter({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) })
+        if (data && data.features && data.features[0]) {
+          const [lon, lat] = data.features[0].center
+          setMapCenter({ lat, lng: lon })
           setIsSearching(false)
           return
         }
@@ -562,3 +563,4 @@ export function MapPage() {
     </div>
   )
 }
+

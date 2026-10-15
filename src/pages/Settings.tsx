@@ -28,7 +28,7 @@ export function Settings() {
     try {
       setSaving(true)
       if (activeTab === "verification") {
-        await fetch("http://localhost:5000/api/admin/settings/citizen-verification", {
+        await fetch("http://10.152.129.95:5000/api/admin/settings/citizen-verification", {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",

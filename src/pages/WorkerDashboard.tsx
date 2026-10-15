@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import { Card, CardContent } from "@/components/ui/Card"
 import { useAuth } from "../context/AuthContext"
 
-const API_BASE = 'http://localhost:5000/api/admin';
+const API_BASE = 'http://10.152.129.95:5000/api/admin';
 
 const getLocationString = (loc: any): string => {
   if (!loc) return 'City Area';
@@ -378,3 +378,4 @@ export function WorkerDashboard() {
     </motion.div>
   )
 }
+

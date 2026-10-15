@@ -25,7 +25,7 @@ export function Profile() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const res = await fetch("http://localhost:5000/api/citizen/profile", {
+        const res = await fetch("http://10.152.129.95:5000/api/citizen/profile", {
           headers: { "Authorization": `Bearer ${token}` }
         })
         if (res.ok) {
@@ -56,7 +56,7 @@ export function Profile() {
     setIsSaving(true)
     try {
       const fullName = `${formData.firstName} ${formData.lastName}`.trim()
-      const res = await fetch("http://localhost:5000/api/citizen/profile", {
+      const res = await fetch("http://10.152.129.95:5000/api/citizen/profile", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

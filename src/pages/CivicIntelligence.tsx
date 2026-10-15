@@ -151,7 +151,7 @@ export function CivicIntelligence() {
       if (selectedAiStatus !== "All") params.append("aiStatus", selectedAiStatus)
       if (selectedSlaStatus !== "All") params.append("slaStatus", selectedSlaStatus)
 
-      const res = await fetch(`http://localhost:5000/api/admin/civic-intelligence/map?${params.toString()}`, {
+      const res = await fetch(`http://10.152.129.95:5000/api/admin/civic-intelligence/map?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
 
@@ -802,3 +802,4 @@ export function CivicIntelligence() {
     </div>
   )
 }
+

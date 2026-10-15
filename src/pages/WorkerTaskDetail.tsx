@@ -5,7 +5,7 @@ import { ArrowLeft, MapPin, Navigation2, Camera, Map, CheckCircle2, AlertTriangl
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card"
 import { useAuth } from "../context/AuthContext"
 
-const API_BASE = 'http://localhost:5000/api/admin';
+const API_BASE = 'http://10.152.129.95:5000/api/admin';
 
 type TaskState = 'assigned' | 'arrived' | 'before_uploaded' | 'in_progress' | 'issue_reported' | 'after_uploaded' | 'completed' | 'verification';
 
@@ -306,3 +306,4 @@ export function WorkerTaskDetail() {
     </motion.div>
   )
 }
+

@@ -93,7 +93,7 @@ export function Register() {
     setErrorMsg("");
     setIsSubmitting(true);
     try {
-      const response = await fetch('http://localhost:5000/api/auth/register', {
+      const response = await fetch('http://10.152.129.95:5000/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -128,7 +128,7 @@ export function Register() {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       
-      const response = await fetch('http://localhost:5000/api/auth/google', {
+      const response = await fetch('http://10.152.129.95:5000/api/auth/google', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -470,3 +470,4 @@ export function Register() {
     </div>
   )
 }
+

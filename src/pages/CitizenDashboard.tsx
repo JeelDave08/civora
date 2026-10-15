@@ -56,7 +56,7 @@ export function CitizenDashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/citizen/dashboard', {
+        const response = await fetch('http://10.152.129.95:5000/api/citizen/dashboard', {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -90,7 +90,7 @@ export function CitizenDashboard() {
     setIsLoadingAllComplaints(true);
     setShowAllComplaintsModal(true);
     try {
-      const response = await fetch('http://localhost:5000/api/citizen/nearby-complaints', {
+      const response = await fetch('http://10.152.129.95:5000/api/citizen/nearby-complaints', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -569,4 +569,5 @@ export function CitizenDashboard() {
     </motion.div>
   );
 }
+
 

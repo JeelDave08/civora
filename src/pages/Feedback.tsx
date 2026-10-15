@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/Input"
 import { useAuth } from "../context/AuthContext"
 import { motion } from "framer-motion"
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = 'http://10.152.129.95:5000/api';
 
 // ==========================================
 // ADMIN FEEDBACK MANAGEMENT VIEW

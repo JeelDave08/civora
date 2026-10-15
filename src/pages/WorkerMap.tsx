@@ -84,7 +84,7 @@ export function WorkerMap() {
   const fetchWorkerTasks = async () => {
     try {
       setLoading(true)
-      const res = await fetch("http://localhost:5000/api/admin/complaints?limit=100", {
+      const res = await fetch("http://10.152.129.95:5000/api/admin/complaints?limit=100", {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
@@ -217,3 +217,4 @@ export function WorkerMap() {
     </motion.div>
   )
 }
+

@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
-import { Clock, MapPin, Search, ArrowRight, UserCheck, RefreshCw, CheckCircle, AlertTriangle } from "lucide-react"
+import { Clock, MapPin, Search, ArrowRight, UserCheck, RefreshCw, CheckCircle, AlertTriangle, Edit2, X } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
 import { useAuth } from "../context/AuthContext"
 
-const API_BASE = 'http://localhost:5000/api/admin';
+const API_BASE = 'http://10.152.129.95:5000/api/admin';
 
 const getLocationString = (loc: any): string => {
   if (!loc) return '';
@@ -25,6 +25,71 @@ export function SupervisorComplaints() {
   const [selectedWorkerMap, setSelectedWorkerMap] = useState<Record<string, string>>({});
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Edit Assignment State
+  const [editingComplaint, setEditingComplaint] = useState<any>(null);
+  const [editForm, setEditForm] = useState({
+    workerId: '',
+    startDate: '',
+    dueDate: '',
+    priority: '',
+    description: ''
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const openEditModal = (c: any) => {
+    setEditingComplaint(c);
+    setEditForm({
+      workerId: c.workerId?._id || c.workerId || '',
+      startDate: c.startDate ? new Date(c.startDate).toISOString().split('T')[0] : '',
+      dueDate: c.dueDate ? new Date(c.dueDate).toISOString().split('T')[0] : '',
+      priority: c.priority || 'Medium',
+      description: c.description || ''
+    });
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingComplaint || !editForm.workerId) {
+      showToast('error', 'Please select a field worker');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const response = await fetch(`${API_BASE}/complaints/${editingComplaint._id}/assign`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          workerId: editForm.workerId,
+          startDate: editForm.startDate || undefined,
+          dueDate: editForm.dueDate || undefined,
+          priority: editForm.priority || undefined,
+          description: editForm.description || undefined,
+          isEdit: true
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to update assignment');
+      const data = await response.json().catch(() => null);
+      if (data?.emailSent) {
+        showToast('success', 'Assignment updated successfully. Updated email sent to the field worker.');
+      } else if (data?.emailSent === false) {
+        showToast('success', 'Assignment updated successfully, but the updated email could not be sent.');
+      } else {
+        showToast('success', 'Assignment updated successfully!');
+      }
+      setEditingComplaint(null);
+      fetchData();
+    } catch (err: any) {
+      showToast('error', err.message || 'Error updating assignment');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -80,7 +145,14 @@ export function SupervisorComplaints() {
       });
 
       if (!response.ok) throw new Error('Failed to assign task');
-      showToast('success', 'Task successfully assigned to field worker with schedule dates!');
+      const data = await response.json().catch(() => null);
+      if (data?.emailSent) {
+        showToast('success', 'Work assigned successfully. Assignment email sent to the field worker.');
+      } else if (data?.emailSent === false) {
+        showToast('success', 'Work assigned successfully, but the assignment email could not be sent.');
+      } else {
+        showToast('success', 'Task successfully assigned to field worker with schedule dates!');
+      }
       fetchData();
     } catch (err: any) {
       showToast('error', err.message || 'Error assigning task');
@@ -219,11 +291,23 @@ export function SupervisorComplaints() {
                         </button>
                       </div>
                     ) : (
-                      <div className="flex flex-col items-end gap-1">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-slate-200 text-slate-800">
-                          <UserCheck size={14} className="text-[#4CC9B0]" />
-                          {c.workerId?.fullName || 'Assigned Worker'}
-                        </span>
+                      <div className="flex flex-col items-end gap-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-slate-200 text-slate-800">
+                            <UserCheck size={14} className="text-[#4CC9B0]" />
+                            {c.workerId?.fullName || 'Assigned Worker'}
+                          </span>
+                          {c.status !== 'Resolved' && c.status !== 'Closed' && (
+                            <button
+                              onClick={() => openEditModal(c)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold bg-slate-100 hover:bg-[#4CC9B0]/20 hover:text-[#2d947e] text-slate-700 transition-all border border-slate-200 shadow-sm"
+                              title="Edit Assignment"
+                            >
+                              <Edit2 size={12} className="text-[#4CC9B0]" />
+                              Edit Assignment
+                            </button>
+                          )}
+                        </div>
                         {c.isTimerRunning && (
                           <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full animate-pulse border border-emerald-200">
                             ⏱ Working Now
@@ -259,7 +343,131 @@ export function SupervisorComplaints() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Assignment Modal */}
+      <AnimatePresence>
+        {editingComplaint && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-slate-100 space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                    <Edit2 size={18} className="text-[#4CC9B0]" /> Edit Assignment
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    #CMP-{String(editingComplaint._id).slice(-4).toUpperCase()} &bull; {editingComplaint.title}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setEditingComplaint(null)}
+                  className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEdit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Assigned Field Worker *
+                  </label>
+                  <select
+                    value={editForm.workerId}
+                    onChange={(e) => setEditForm({ ...editForm, workerId: e.target.value })}
+                    required
+                    className="w-full h-10 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:border-[#4CC9B0]"
+                  >
+                    <option value="">Select Field Worker...</option>
+                    {workers.map((w) => (
+                      <option key={w._id} value={w._id}>
+                        {w.fullName} ({w.city || w.department || 'Field Force'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Scheduled Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editForm.startDate}
+                      onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })}
+                      className="w-full h-10 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:border-[#4CC9B0]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Estimated Due Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editForm.dueDate}
+                      onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })}
+                      className="w-full h-10 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:border-[#4CC9B0]"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Priority
+                  </label>
+                  <select
+                    value={editForm.priority}
+                    onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}
+                    className="w-full h-10 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:border-[#4CC9B0]"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                    <option value="Critical">Critical</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Assignment Instructions / Description
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-[#4CC9B0] resize-none"
+                    placeholder="Update work instructions or description..."
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditingComplaint(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEdit}
+                    className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {savingEdit ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }
+
 

@@ -20,7 +20,7 @@ export function MyComplaints() {
   useEffect(() => {
     const fetchComplaints = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/citizen/complaints', {
+        const response = await fetch('http://10.152.129.95:5000/api/citizen/complaints', {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -54,7 +54,7 @@ export function MyComplaints() {
     if (!window.confirm("Are you sure you want to delete this complaint?")) return;
     
     try {
-      const res = await fetch(`http://localhost:5000/api/citizen/complaints/${id}`, {
+      const res = await fetch(`http://10.152.129.95:5000/api/citizen/complaints/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -243,3 +243,4 @@ export function MyComplaints() {
     </div>
   )
 }
+

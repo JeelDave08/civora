@@ -4,7 +4,7 @@ import { Users, UserPlus, UserCheck, UserX, Search, Loader2, Mail, MapPin, Calen
 import { useAuth } from "../context/AuthContext"
 import { motion, AnimatePresence } from "framer-motion"
 
-const API_BASE = 'http://localhost:5000/api/admin';
+const API_BASE = 'http://10.152.129.95:5000/api/admin';
 
 export function AdminCitizens() {
   const { token } = useAuth();
@@ -513,4 +513,5 @@ export function AdminCitizens() {
     </motion.div>
   )
 }
+
 

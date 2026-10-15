@@ -1,0 +1,466 @@
+================================================================================
+                     CIVORA SMART CITY PLATFORM - SYSTEM FLOW & ARCHITECTURE
+================================================================================
+
+1. PROJECT OVERVIEW & ARCHITECTURE
+--------------------------------------------------------------------------------
+CIVORA is a state-of-the-art, full-stack Smart City Civic Management Platform designed to streamline civic issue reporting, automated triage, field agent dispatch, real-time work tracking, AI-assisted verification, and community engagement.
+
+The architecture comprises:
+  • Frontend: React 18 with TypeScript, Vite, Tailwind CSS, Lucide Icons, Leaflet Maps, and TanStack React Query.
+  • Backend: Node.js with Express.js REST API.
+  • Database: MongoDB with Mongoose ODM (Databases & Collections: civora).
+  • Security & Auth: JSON Web Tokens (JWT), Bcrypt password hashing, domain-restricted admin authentication, and multi-collection user lookup.
+  • AI Integration: Dual Vision AI Pipeline (OpenAI GPT-4o Vision API with automatic fallback to Google Gemini 3.6 Flash Vision API) for automatic issue category detection, severity rating, and department routing.
+  • Geospatial Engine: MongoDB 2dsphere indexing, Haversine formula distance calculation, and reverse geocoding via LocationIQ & OpenStreetMap Nominatim.
+  • Automated Notifications & Emailer: Nodemailer SMTP service for automated personnel credential delivery and persistent database notifications.
+
+
+================================================================================
+2. DATABASE ARCHITECTURE & COLLECTIONS (MONGODB / MONGOOSE)
+================================================================================
+Database Name: `civora`
+
+Collections & Schema Definitions:
+
+1. `users` (Model: `User`)
+   • Description: Stores user profiles for Citizens (and legacy records).
+   • Fields:
+       - `fullName`: String (Required)
+       - `email`: String (Required, Unique)
+       - `personalEmail`: String (Default: '')
+       - `password`: String (Hashed with bcryptjs)
+       - `city`: String
+       - `phone`: String (Default: '')
+       - `address`: String (Default: '')
+       - `profileImage`: String (Default: '')
+       - `role`: String ['citizen', 'admin', 'supervisor', 'worker'] (Default: 'citizen')
+       - `googleId`: String (For Firebase/Google Auth)
+       - `points`: Number (Default: 450 - Gamification balance)
+       - `badges`: Array of Strings (Default: ["First Report", "Community Helper"])
+       - `createdAt`: Date (Default: Date.now)
+
+2. `admins` (Model: `Admin`)
+   • Description: Stores privileged system administrator credentials.
+   • Fields:
+       - `fullName`: String (Required)
+       - `email`: String (Required, Unique, must end with '@admin.civora.com')
+       - `password`: String (Required, Hashed)
+       - `department`: String (Default: 'General Administration')
+       - `permissions`: Array of Strings ['all', 'manage_complaints', 'manage_citizens', 'manage_personnel', 'manage_departments', 'view_reports', 'manage_announcements']
+       - `isActive`: Boolean (Default: true)
+       - `lastLogin`: Date
+       - `profileImage`: String
+       - `phone`: String
+       - `createdAt`: Date (Default: Date.now)
+
+3. `supervisors` (Model: `Supervisor`)
+   • Description: Dedicated collection storing municipal supervisors assigned by ward/department.
+   • Fields:
+       - `fullName`: String (Required)
+       - `email`: String (Required, Unique, Lowercase)
+       - `personalEmail`: String (Default: '')
+       - `password`: String (Required, Hashed)
+       - `department`: String (Default: 'General')
+       - `city`: String (Default: '')
+       - `phone`: String (Default: '')
+       - `profileImage`: String (Default: '')
+       - `isActive`: Boolean (Default: true)
+       - `role`: String (Default: 'supervisor')
+       - `createdAt`: Date (Default: Date.now)
+
+4. `fieldworkers` (Model: `FieldWorker`)
+   • Description: Dedicated collection storing on-field agents assigned to execute repairs.
+   • Fields:
+       - `fullName`: String (Required)
+       - `email`: String (Required, Unique, Lowercase)
+       - `personalEmail`: String (Default: '')
+       - `password`: String (Required, Hashed)
+       - `department`: String (Default: 'General')
+       - `city`: String (Default: '')
+       - `phone`: String (Default: '')
+       - `profileImage`: String (Default: '')
+       - `isActive`: Boolean (Default: true)
+       - `role`: String (Default: 'worker')
+       - `assignedSupervisorId`: ObjectId (Ref: 'Supervisor')
+       - `createdAt`: Date (Default: Date.now)
+
+5. `complaints` (Model: `Complaint`)
+   • Description: Central civic ticket entity storing complete complaint life cycle data.
+   • Fields:
+       - `title`: String (Required)
+       - `description`: String
+       - `category`: String (Required - e.g., 'Road', 'Waste Management', 'Water Supply', 'Electricity', 'Drainage', 'Building')
+       - `status`: String Enum ['New', 'Assigned', 'Working', 'Pending Citizen Verification', 'Community Reopened – Supervisor Review Required', 'Community Reopened', 'Resolved', 'Closed'] (Default: 'New')
+       - `priority`: String Enum ['Low', 'Medium', 'High', 'Critical'] (Default: 'Medium')
+       - `progress`: Number (0 to 100%)
+       - `citizenId`: ObjectId (Ref: 'User')
+       - `workerId`: ObjectId (Ref: 'User' / 'FieldWorker')
+       - `startDate`: Date
+       - `dueDate`: Date
+       - `remarks`: String
+       - `beforeImage`: String
+       - `afterImage`: String
+       - `location`: Object {
+           `lat`: Number,
+           `lng`: Number,
+           `address`: String,
+           `geoPoint`: Object { type: 'Point', coordinates: [lng, lat] } (Indexed: 2dsphere)
+         }
+       - `imageUrl`: String
+       - `images`: Array of Mixed (Strings or photo objects)
+       - `workStartedAt`: Date
+       - `workEndedAt`: Date
+       - `timeSpentSeconds`: Number (Default: 0 - Work duration timer)
+       - `isTimerRunning`: Boolean (Default: false)
+       - `department`: String
+       - `suggestedSlaHours`: Number
+       - `slaDueAt`: Date
+       - `aiAnalysisStatus`: String Enum ['NOT_ANALYZED', 'ANALYZING', 'COMPLETED', 'FAILED']
+       - `aiAnalysis`: Object { category, priority, department, issueSummary, suggestedSlaHours, confidenceScore, imageAnalysis, analyzedAt, confirmedByCitizen, confirmedAt }
+       - `aiProvider`: String (e.g., 'OpenAI (gpt-4o-mini)' or 'Gemini (gemini-3.6-flash)')
+       - `communityIssue`: Object { isPrimary, primaryComplaintId, supporterCount, duplicateCount, followersCount, followers, verification }
+       - `citizenVerification`: Object { citizensNotified, yesCount, stillExistsCount, verificationStatus, communityReopened, approvedBySupervisorAt, reopenedAt }
+       - `createdAt`: Date (Default: Date.now)
+
+6. `citizenverifications` (Model: `CitizenVerification`)
+   • Description: Tracks active verification sessions for resolved complaints.
+   • Fields:
+       - `complaintId`: ObjectId (Ref: 'Complaint', Unique)
+       - `status`: String Enum ['PENDING_SUPERVISOR', 'IN_VERIFICATION', 'VERIFIED_CLOSED', 'COMMUNITY_REOPENED']
+       - `supervisorApprovedAt`: Date
+       - `supervisorId`: ObjectId
+       - `citizensNotifiedCount`: Number
+       - `yesCount`: Number
+       - `stillExistsCount`: Number
+       - `communityReopenedAt`: Date
+       - `history`: Array of Objects [{ action, actorId, actorRole, actorName, details, vote, timestamp }]
+
+7. `citizenresponses` (Model: `CitizenResponse`)
+   • Description: Records individual citizen resolution verification votes. Enforces 1 vote per citizen per complaint.
+   • Fields:
+       - `complaintId`: ObjectId (Ref: 'Complaint')
+       - `citizenId`: ObjectId (Ref: 'User')
+       - `verificationId`: ObjectId (Ref: 'CitizenVerification')
+       - `response`: String Enum ['YES_RESOLVED', 'STILL_EXISTS']
+       - `createdAt`: Date
+   • Unique Index: `{ complaintId: 1, citizenId: 1 }`
+
+8. `communityreopenevents` (Model: `CommunityReopenEvent`)
+   • Description: Audit log triggered when community consensus signals a complaint was not properly fixed.
+   • Fields:
+       - `complaintId`: ObjectId (Ref: 'Complaint')
+       - `reopenedAt`: Date
+       - `stillExistsCount`: Number
+       - `thresholdApplied`: Number
+       - `status`: String Enum ['TRIGGERED', 'REVIEWED_BY_SUPERVISOR', 'REWORK_ASSIGNED', 'RESOLVED_AGAIN']
+       - `supervisorId`: ObjectId
+       - `supervisorNotes`: String
+       - `actionTaken`: String
+
+9. `complaintrelationships` (Model: `ComplaintRelationship`)
+   • Description: Records duplicate and merged relationships between complaint tickets.
+   • Fields:
+       - `primaryComplaintId`: ObjectId (Ref: 'Complaint')
+       - `relatedComplaintId`: ObjectId (Ref: 'Complaint')
+       - `relationshipType`: String Enum ['POTENTIAL_DUPLICATE', 'CONFIRMED_DUPLICATE', 'MERGED', 'RELATED']
+       - `similarityScore`: Number (0 to 100%)
+       - `distanceMeters`: Number
+       - `createdBy`: ObjectId
+
+10. `complaintsupporters` (Model: `ComplaintSupporter`)
+    • Description: Citizen participation records for joining community issues and submitting additional evidence.
+    • Fields:
+        - `complaintId`: ObjectId (Ref: 'Complaint')
+        - `citizenId`: ObjectId (Ref: 'User')
+        - `contributionType`: String Enum ['JOINED_ISSUE', 'ADDED_EVIDENCE', 'CONFIRMED_ISSUE']
+        - `evidenceImages`: Array of Mixed
+        - `comment`: String
+        - `verificationVote`: String Enum ['RESOLVED', 'STILL_EXISTS']
+        - `verifiedAt`: Date
+    • Unique Index: `{ complaintId: 1, citizenId: 1 }`
+
+11. `departments` (Model: `Department`)
+    • Description: Municipal service definitions (Roads, Water, Electricity, etc.).
+    • Fields: `name`, `status` ['Active', 'Maintenance', 'Inactive'], `description`, `icon`, `color`.
+
+12. `announcements` (Model: `Announcement`)
+    • Description: Broadcast updates and emergency alerts issued by system admins.
+    • Fields: `title`, `message`, `type` ['Emergency Alert', 'Government News', 'Update', 'Maintenance'], `createdBy`, `isActive`.
+
+13. `activitylogs` (Model: `ActivityLog`)
+    • Description: Complete security and administrative audit log.
+    • Fields: `adminId`, `actorRole`, `actorName`, `action`, `details`, `targetType`, `targetId`, `ipAddress`, `createdAt`.
+
+14. `feedbacks` (Model: `Feedback`)
+    • Description: Citizen platform ratings and feedback reviews.
+    • Fields: `citizenId`, `subject`, `comment`, `rating` (1 to 5), `status` ['New', 'Reviewed', 'Resolved'].
+
+15. `notifications` (Model: `Notification`)
+    • Description: In-app notification feed targeting specific recipients.
+    • Fields: `recipientId`, `recipientRole`, `type` ['VERIFICATION_REQUEST', 'COMMUNITY_REOPEN_ALERT', 'WORKER_RESOLVED', 'SUPERVISOR_APPROVED', 'GENERAL'], `title`, `message`, `complaintId`, `read`, `actionData`.
+
+16. `rewards` & `claimedrewards` (Models: `Reward`, `ClaimedReward`)
+    • Description: Municipal voucher reward catalog and citizen claimed promo coupons.
+    • Fields: `title`, `description`, `pointsCost`, `category`, `promoPrefix`, `couponCode`, `expiresAt`, `status`.
+
+17. `systemsettings` (Model: `SystemSetting`)
+    • Description: System-wide dynamic configurable parameters (e.g., `community_reopen_threshold` default = 2, `verification_radius_km` default = 5).
+
+
+================================================================================
+3. AUTHENTICATION & SECURITY ARCHITECTURE
+================================================================================
+1. Multi-Collection Authentication Engine:
+   • Endpoint `/api/auth/login`: Accepts credentials (`loginId` and `password`). Sanitizes email input.
+   • Sequential Multi-Collection Lookup:
+       Step A: Searches `User` collection (Citizens).
+       Step B: If not found, searches `Supervisor` collection.
+       Step C: If not found, searches `FieldWorker` collection.
+       Step D (Fallback): Checks `personalEmail` in `Supervisor` and `FieldWorker` collections.
+   • Bcrypt Hash Verification: Validates input password against stored hash using `bcrypt.compare()`.
+   • JWT Token Generation: On match, signs a JSON Web Token containing `{ id, role }` using `process.env.JWT_SECRET` with a 24-hour expiration.
+   • Audit Logging: Automatically records a `USER_LOGIN` action in `ActivityLog`.
+
+2. Domain-Restricted Administrator Authentication:
+   • Endpoint `/api/admin-auth/login`: Specifically requires emails matching the `@admin.civora.com` domain format (e.g., `admin@admin.civora.com`).
+   • Generates JWT with payload `{ id, role: 'admin', isAdmin: true }` valid for 8 hours.
+   • Updates `lastLogin` timestamp on success.
+
+3. Google SSO / Firebase Authentication:
+   • Endpoint `/api/auth/google`: Accepts Google display name, email, and Firebase UID.
+   • Checks if user exists in `User` model; if not, automatically provisions a new citizen profile.
+
+4. Frontend Security & Route Guards:
+   • `AuthContext.tsx`: Persists JWT token and user profile in `localStorage`. Listens to browser storage events.
+   • `ProtectedRoute.tsx`: Intercepts navigation requests. Compares current user role against allowed roles (`admin`, `supervisor`, `worker`, `citizen`).
+   • Redirects unauthorized access attempts to `/login` or `/403 Forbidden`.
+
+
+================================================================================
+4. DETAILED ROLE-BASED SYSTEM WORKFLOWS
+================================================================================
+
+--------------------------------------------------------------------------------
+A. CITIZEN ROLE FLOW
+--------------------------------------------------------------------------------
+Step 1: Registration & Login
+  - Citizen registers with Full Name, Email, Password, City, and optional Phone/Address.
+  - Alternately logs in via Google SSO.
+  - System issues JWT token and redirects to `/citizen/dashboard`.
+
+Step 2: Citizen Dashboard & Civic Impact Score
+  - Real-time KPI summary: Total Submitted, In Progress, Resolved, Pending.
+  - Civic Impact Telemetry: Calculates Impact Score (0 to 100%) based on reported complaints, resolution ratio, community verifications, and contributions.
+  - Assigns dynamic Civic Tier (e.g., "🌱 Getting Started", "🏙️ Active Citizen", "🌟 Active Civic Contributor", "🏆 High Civic Impact").
+
+Step 3: Raising a Complaint (4-Step Guided Wizard)
+  - Step 1 (Category & Priority): Selects category (Road, Waste Management, Water Supply, Electricity, Drainage, Building, Other) and priority level.
+  - Step 2 (Description & Title): Inputs detailed issue title and description.
+  - Step 3 (Geospatial Location & Evidence Upload):
+      • Live GPS Detection: Acquires latitude/longitude via browser Geolocation API and Leaflet map.
+      • Reverse Geocoding: Backend proxies GPS coordinates to LocationIQ / Nominatim API to format precise Indian street address.
+      • Photo Evidence: Uploads up to 3 evidence images hosted via Cloudinary.
+      • AI Vision Analysis: Sends photo URL to `/api/complaints/analyze-image`. AI model classifies detected issue, confidence score, category, and department.
+      • Multivariable Duplicate Search: Sends parameters to `/api/complaints/check-duplicates`. If duplicate score >= 30%, prompts citizen to join existing community issue.
+  - Step 4 (Submission & Confirmation): Generates unique Complaint Ticket Code (e.g., #CMP-8492). Citizen can confirm or override AI suggestions via `/api/complaints/:id/confirm-ai`.
+
+Step 4: Community Issues & Multi-Citizen Joining
+  - Citizens can join existing community complaints (`/api/complaints/:id/join`), upload supplementary evidence photos, and follow for status notifications.
+
+Step 5: Nearby Civic Map
+  - Interactive Leaflet map displaying active and resolved complaints with color-coded status markers and real-time distance calculations.
+
+Step 6: Citizen Resolution Verification
+  - When field workers complete a repair, nearby citizens receive in-app verification alerts.
+  - Citizens vote "Yes, Resolved" or "Still Exists".
+  - If "Still Exists" votes reach the system threshold (default 2), system triggers an automatic `Community Reopen Alert`.
+
+Step 7: Gamification & Rewards Redemption
+  - Citizens earn reward points for reporting and verifying issues.
+  - Accesses Rewards Portal (`/api/citizen/rewards`), spends points to claim municipal vouchers (Free Parking Pass, Transit Pass, City Event Ticket, Property Tax Rebate).
+  - System generates unique claim code (e.g., `CIV-PARK-8912`).
+
+Step 8: Profile & Feedback
+  - Updates profile avatar, phone number, and address.
+  - Submits platform ratings (1 to 5 stars) and feedback reviews.
+
+
+--------------------------------------------------------------------------------
+B. SUPERVISOR ROLE FLOW
+--------------------------------------------------------------------------------
+Step 1: Department & Ward Authentication
+  - Supervisor logs into portal (`/supervisor/dashboard`).
+  - Access is scoped to assigned municipal department (e.g., Roads & Infrastructure, Waste Management, Water Supply).
+
+Step 2: Executive Triage Queue
+  - Views open complaints filtered by ward, priority, and age.
+  - Inspects citizen reported photo evidence gallery, AI vision breakdown, map location, and supporter counts.
+
+Step 3: Worker Dispatch & Task Assignment
+  - Selects available field worker from department pool.
+  - Sets Scheduled Start Date and Estimated Due Date.
+  - Submits assignment (`PUT /api/admin/complaints/:id/assign`), updating status to `Assigned`.
+
+Step 4: Live Execution & Timer Monitoring
+  - Tracks live worker status (e.g., "⏱ Working Now" timer active).
+  - Reviews cumulative time logged by worker (in minutes and seconds).
+
+Step 5: Resolution Approval & Citizen Verification Trigger
+  - When field worker submits completion proof, supervisor inspects "Before & After" photos and execution remarks.
+  - Supervisor approves resolution (`POST /api/admin/complaints/:id/approve-resolution`).
+  - Approval updates status to `Pending Citizen Verification` and dispatches in-app verification requests to citizens within `verification_radius_km` (default 5 km).
+
+Step 6: Community Reopen Alert Management
+  - If community votes trigger a reopen alert (`Community Reopened – Supervisor Review Required`), supervisor reviews community complaints.
+  - Action Options: Re-assign task to field worker for rework (`REWORK`) or confirm verified closure (`CLOSE`).
+
+Step 7: Team Monitoring
+  - Monitors department field workers, active task counts, resolved task totals, and logged work hours.
+
+
+--------------------------------------------------------------------------------
+C. FIELD WORKER ROLE FLOW
+--------------------------------------------------------------------------------
+Step 1: Mobile Field Portal Authentication
+  - Worker logs into mobile-responsive portal (`/worker/dashboard`).
+  - Displays daily task list categorized by priority and due date.
+
+Step 2: Task Execution & Interactive Work Timer
+  - Opens assigned task detail page (`/worker/tasks/:id`).
+  - Views location address, GPS map, citizen description, and original evidence photos.
+  - Interactive Work Timer:
+      • Click "Start Work Timer": Calls `/api/admin/complaints/:id/status` with `actionType: 'START_WORK'`. Sets `workStartedAt`, status to `Working`, and `isTimerRunning: true`.
+      • Real-time stopwatch counts seconds on worker screen.
+      • Click "Stop Timer": Calls `actionType: 'STOP_WORK'`, updating `workEndedAt` and persisting cumulative `timeSpentSeconds` in database.
+
+Step 3: Completion Proof Submission
+  - Uploads "After / Repair Proof" photos (Cloudinary hosted).
+  - Enters execution remarks detailing work completed.
+  - Submits task completion: Updates status to `Pending Citizen Verification` and creates `CitizenVerification` record.
+
+
+--------------------------------------------------------------------------------
+D. ADMIN ROLE FLOW
+--------------------------------------------------------------------------------
+Step 1: Executive Command Center (`/admin/dashboard`)
+  - Overall KPI metrics: Total Complaints, Active Supervisors, Field Workers, Registered Citizens, Resolution Rate %.
+  - Timeframe Filter (Last 7, 15, 30, or 60 days).
+  - Triage queue for unassigned civic tickets.
+
+Step 2: Ward-Wise Personnel Onboarding & Email Dispatch
+  - Creates Supervisors and Field Workers via `/api/admin/personnel`.
+  - Onboard with Name, Portal Login Email, Personal Email, Password, Department, and City/Ward.
+  - Automated Credential Emailer: Backend uses Nodemailer (`utils/emailSender.js`) to automatically email login credentials and temporary password to the employee's personal email.
+
+Step 3: Civic Intelligence & Problem Heatmap (`/admin/civic-intelligence`)
+  - City-wide interactive Leaflet heatmap displaying complaint clusters.
+  - Filters by category, status, priority, ward, department, timeframe, SLA breach status, and community issues.
+  - Ward Hotspot Aggregation: Ranks top problem wards by active complaint volume.
+
+Step 4: Community Issues & Manual Duplicate Merging (`/admin/complaints/community-issues`)
+  - Displays consolidated primary community issues and supporter statistics.
+  - Manual Merge Tool (`POST /api/admin/complaints/merge`): Allows admins to merge secondary duplicate complaints into a primary complaint. Consolidates evidence photos and supporter counts, updating status to `Closed` and recording a `COMPLAINT_MERGED` audit log.
+
+Step 5: Department & Service Management (`/admin/services`)
+  - Add, edit, toggle status ('Active', 'Maintenance', 'Inactive'), or delete municipal departments.
+
+Step 6: User Access & Password Management (`/admin/citizens`, `/admin/personnel`)
+  - Reset user passwords securely for citizens or personnel.
+  - Delete user accounts with audit log recording.
+
+Step 7: System Monitoring & Activity Audit Logs (`/admin/activity-log`, `/admin/monitoring`)
+  - Live audit feed tracking system events (Logins, Account Creation, Password Updates, Status Changes, Ticket Merges).
+  - Citizen Verification Telemetry: Monitor verification response rates, yes/no counts, and adjust dynamic system parameters (`community_reopen_threshold` and `verification_radius_km`).
+
+Step 8: System Announcements (`/admin/announcements`)
+  - Publish city-wide updates and emergency alerts broadcasted to citizen dashboards.
+
+
+================================================================================
+5. CORE INTELLIGENT ENGINES & ALGORITHMS
+================================================================================
+
+1. DUAL VISION AI ANALYSIS ENGINE (`services/aiImageAnalysisService.js`)
+   - Function `analyzeImage(imageUrl)` accepts Cloudinary photo URL.
+   - Stage 1 (OpenAI Vision API): Attempts call to `gpt-4o-mini` with vision prompt.
+   - Stage 2 (Gemini Vision API Fallback): If OpenAI API key is missing or call fails, fetches image binary and calls Google Gemini `gemini-3.6-flash` vision model.
+   - Returned JSON Structure:
+     `{ detectedIssue, confidenceScore, suggestedCategory, suggestedPriority, suggestedDepartment, analyzedAt }`
+   - Mapping Dictionary: Maps detected categories directly to municipal departments (e.g., Road -> Roads & Infrastructure, Garbage -> Waste Management, Water -> Water Supply).
+
+2. MULTIVARIABLE DUPLICATE DETECTION ALGORITHM (`services/duplicateDetectionService.js`)
+   - Function `findDuplicates()` executes a multi-factor search:
+     1. Exact Image Match (100% Score): If uploaded image URL matches existing active complaint image URL.
+     2. Distance Score (35% Max): Computes exact distance using Haversine formula against MongoDB `2dsphere` index (`location.geoPoint`).
+     3. Category Synonym Normalization (25% Max): Normalizes text into canonical keys ('road', 'garbage', 'electricity', 'water', 'parks').
+     4. Address & Title Text Similarity (25% Max): Tokenizes address string and computes Jaccard text overlap coefficient.
+     5. Description & Title Overlap (10% Max): Token overlap across issue descriptions.
+     6. Priority Signal (5% Max): Priority level match.
+   - Any candidate score >= 30% is returned as a potential duplicate to prevent redundant ticket creation.
+
+3. CITIZEN RESOLUTION VERIFICATION & COMMUNITY REOPEN TRIGGER
+   - Workflow:
+     Worker Resolves -> Supervisor Approves -> Citizens Notified via `/api/admin/complaints/:id/approve-resolution`.
+     Nearby citizens receive verification notifications.
+   - Single-Vote Guard: `CitizenResponse` model enforces unique `{ complaintId, citizenId }` compound index.
+   - Community Reopen Trigger: When `stillExistsCount` >= `community_reopen_threshold` (default 2), system automatically:
+     a. Updates complaint status to `Community Reopened – Supervisor Review Required`.
+     b. Updates `citizenVerification.verificationStatus` to `COMMUNITY_REOPENED`.
+     c. Creates a `CommunityReopenEvent` audit log.
+     d. Dispatches high-priority `COMMUNITY_REOPEN_ALERT` notifications to all supervisors.
+
+
+================================================================================
+6. REST API ENDPOINTS DIRECTORY
+================================================================================
+
+Authentication Routes (`/api/auth` & `/api/admin-auth`):
+  • POST `/api/auth/register` - Register citizen account
+  • POST `/api/auth/login` - Multi-collection login (Citizen, Supervisor, Worker)
+  • POST `/api/auth/google` - Firebase / Google SSO login
+  • POST `/api/admin-auth/login` - Admin login (@admin.civora.com domain restricted)
+  • POST `/api/admin-auth/register` - Admin creation (Admin token protected)
+
+Citizen Routes (`/api/citizen` & `/api`):
+  • GET `/api/citizen/dashboard` - Dashboard stats & Civic Impact Telemetry
+  • GET `/api/citizen/complaints` - List citizen complaints
+  • GET `/api/citizen/complaints/:id` - Complaint details
+  • POST `/api/citizen/complaints` - Create new complaint ticket
+  • POST `/api/complaints/analyze-image` - Dual Vision AI photo analysis
+  • PUT `/api/citizen/complaints/:id/confirm-ai` - Confirm / override AI suggestions
+  • POST `/api/complaints/check-duplicates` - Multivariable duplicate check
+  • POST `/api/complaints/:id/join` - Join existing community issue
+  • POST `/api/complaints/:id/community-evidence` - Upload community proof photos
+  • GET `/api/citizen/reverse-geocode` - Reverse geocode GPS coordinates to address
+  • GET `/api/citizen/rewards` - Rewards catalog & points balance
+  • POST `/api/citizen/rewards/claim` - Claim reward voucher with points
+  • GET `/api/citizen/verification/pending` - Pending verification requests
+  • POST `/api/citizen/verification/:id/respond` - Vote on resolution (Yes | Still Exists)
+  • GET `/api/citizen/notifications` - In-app notification feed
+
+Admin & Supervisor Routes (`/api/admin`):
+  • GET `/api/admin/dashboard` - Executive dashboard statistics
+  • GET `/api/admin/complaints` - Filterable complaint tickets directory
+  • PUT `/api/admin/complaints/:id/assign` - Assign complaint to field worker
+  • PUT `/api/admin/complaints/:id/status` - Update status, remarks, and work timer
+  • POST `/api/admin/complaints/:id/approve-resolution` - Approve resolution & trigger citizen verification
+  • GET `/api/admin/verification/dashboard` - Citizen verification telemetry
+  • POST `/api/admin/complaints/:id/reopen-review` - Take action on reopened tickets (Rework | Close)
+  • GET `/api/admin/civic-intelligence/map` - Civic Intelligence Heatmap & Ward Hotspots
+  • GET `/api/admin/complaints/community-issues` - Primary community issues list
+  • POST `/api/admin/complaints/merge` - Merge secondary duplicate complaint into primary ticket
+  • GET `/api/admin/personnel` - List all supervisors and workers
+  • POST `/api/admin/personnel` - Onboard personnel & send credentials email
+  • GET `/api/admin/personnel-monitoring` - Live personnel workload & timer tracking
+  • GET `/api/admin/citizens` - Registered citizen directory
+  • PUT `/api/admin/citizens/:id/password` - Reset citizen password
+  • DELETE `/api/admin/citizens/:id` - Delete citizen account
+  • GET `/api/admin/departments` - List municipal service departments
+  • POST `/api/admin/departments` - Add new department
+  • DELETE `/api/admin/departments/:id` - Delete department
+  • GET `/api/admin/announcements` - List broadcast announcements
+  • POST `/api/admin/announcements` - Publish announcement / emergency alert
+  • GET `/api/admin/activity-log` - System activity audit log
+
+================================================================================

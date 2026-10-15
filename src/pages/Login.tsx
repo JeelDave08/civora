@@ -124,8 +124,8 @@ export function Login() {
 
       // Use admin-specific endpoint when Admin role is selected
       const endpoint = isAdminLogin
-        ? 'http://localhost:5000/api/admin-auth/login'
-        : 'http://localhost:5000/api/auth/login';
+        ? 'http://10.152.129.95:5000/api/admin-auth/login'
+        : 'http://10.152.129.95:5000/api/auth/login';
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -182,7 +182,7 @@ export function Login() {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       
-      const response = await fetch('http://localhost:5000/api/auth/google', {
+      const response = await fetch('http://10.152.129.95:5000/api/auth/google', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -517,3 +517,4 @@ export function Login() {
     </div>
   )
 }
+

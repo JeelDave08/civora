@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react"
 import { useParams, Link } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { ArrowLeft, MapPin, Calendar, Clock, UserCheck, CheckCircle2, AlertCircle, RefreshCw, Loader2 } from "lucide-react"
+import { ArrowLeft, MapPin, Calendar, Clock, UserCheck, CheckCircle2, AlertCircle, RefreshCw, Loader2, Edit2, X } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card"
 import { useAuth } from "../context/AuthContext"
 
-const API_BASE = 'http://localhost:5000/api/admin';
+const API_BASE = 'http://10.152.129.95:5000/api/admin';
 
 export function SupervisorComplaintDetail() {
   const { id } = useParams()
@@ -17,6 +17,8 @@ export function SupervisorComplaintDetail() {
   const [assignment, setAssignment] = useState({ worker: "", startDate: "", dueDate: "" })
   const [workers, setWorkers] = useState<any[]>([])
   const [loadingWorkers, setLoadingWorkers] = useState(true)
+  const [isEditingAssignment, setIsEditingAssignment] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
 
   const [complaintData, setComplaintData] = useState<any>(null)
   const [loadingComplaint, setLoadingComplaint] = useState(true)
@@ -37,6 +39,11 @@ export function SupervisorComplaintDetail() {
         const found = (data.complaints || []).find((c: any) => c._id === id || String(c._id).endsWith(id || ''))
         if (found) {
           setComplaintData(found)
+          setAssignment({
+            worker: found.workerId?._id || found.workerId || '',
+            startDate: found.startDate ? new Date(found.startDate).toISOString().split('T')[0] : '',
+            dueDate: found.dueDate ? new Date(found.dueDate).toISOString().split('T')[0] : ''
+          })
           if (found.status === 'Assigned') setFlowState('assigned')
           else if (found.status === 'Working') setFlowState('worker_progress')
           else if (found.status === 'Resolved' || found.status === 'Closed') setFlowState('approved')
@@ -96,6 +103,53 @@ export function SupervisorComplaintDetail() {
       fetchComplaintDetail()
     } catch (err: any) {
       alert(err.message || 'Error assigning worker');
+    }
+  }
+
+  const handleEditAssignment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!assignment.worker) {
+      alert('Please select a field worker')
+      return;
+    }
+
+    setSavingEdit(true)
+    try {
+      const targetId = complaintData?._id || id;
+      const response = await fetch(`${API_BASE}/complaints/${targetId}/assign`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          workerId: assignment.worker,
+          startDate: assignment.startDate || undefined,
+          dueDate: assignment.dueDate || undefined,
+          isEdit: true
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.message || 'Failed to update assignment');
+      }
+
+      const data = await response.json().catch(() => null);
+      if (data?.emailSent) {
+        alert('Work assignment updated successfully! Updated notification email sent to field worker.');
+      } else if (data?.emailSent === false) {
+        alert('Work assignment updated successfully, but the notification email could not be sent.');
+      } else {
+        alert('Work assignment updated successfully!');
+      }
+
+      setIsEditingAssignment(false)
+      fetchComplaintDetail()
+    } catch (err: any) {
+      alert(err.message || 'Error updating assignment');
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -319,21 +373,102 @@ export function SupervisorComplaintDetail() {
             {/* STATE: Assigned / Worker Progress */}
             {(flowState === 'assigned' || flowState === 'worker_progress' || flowState === 'rework') && (
               <motion.div key="progress" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
-                <Card className="rounded-[20px] border-slate-100 shadow-sm border-t-4 border-t-blue-500">
-                  <CardContent className="p-8 flex flex-col items-center justify-center text-center space-y-4">
-                    <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
-                      <RefreshCw size={32} className="animate-spin" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-slate-800">
-                        {flowState === 'assigned' ? 'Worker Notified' : flowState === 'rework' ? 'Reworking Issue' : 'Work In Progress'}
-                      </h3>
-                      <p className="text-slate-500 mt-2">
-                        {assignment.worker} is currently handling this issue. Awaiting completion and after-images.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
+                {isEditingAssignment ? (
+                  <Card className="rounded-[20px] border-slate-100 shadow-sm border-t-4 border-t-[#4CC9B0]">
+                    <CardHeader className="flex flex-row items-center justify-between pb-3">
+                      <div>
+                        <CardTitle className="text-lg font-bold flex items-center gap-2">
+                          <Edit2 size={18} className="text-[#4CC9B0]" /> Edit Assignment
+                        </CardTitle>
+                        <CardDescription>Update the assigned field worker and schedule dates.</CardDescription>
+                      </div>
+                      <button
+                        onClick={() => setIsEditingAssignment(false)}
+                        className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                      >
+                        <X size={18} />
+                      </button>
+                    </CardHeader>
+                    <CardContent>
+                      <form onSubmit={handleEditAssignment} className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Assigned Field Worker *</label>
+                          <select
+                            required
+                            value={assignment.worker}
+                            onChange={(e) => setAssignment({ ...assignment, worker: e.target.value })}
+                            className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none bg-white font-medium text-sm text-slate-800"
+                          >
+                            <option value="">Choose Field Worker...</option>
+                            {workers.map((w: any) => (
+                              <option key={w._id} value={w._id}>
+                                {w.fullName} ({w.department || 'Field Force'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                            <input
+                              type="date"
+                              value={assignment.startDate}
+                              onChange={(e) => setAssignment({ ...assignment, startDate: e.target.value })}
+                              className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label>
+                            <input
+                              type="date"
+                              value={assignment.dueDate}
+                              onChange={(e) => setAssignment({ ...assignment, dueDate: e.target.value })}
+                              className="w-full h-11 px-3 rounded-xl border border-slate-200 focus:border-[#4CC9B0] outline-none text-sm"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingAssignment(false)}
+                            className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={savingEdit}
+                            className="px-6 py-2.5 rounded-xl bg-[#4CC9B0] text-white font-bold hover:bg-[#3bb59d] transition-colors shadow-sm disabled:opacity-50"
+                          >
+                            {savingEdit ? 'Saving...' : 'Save Changes'}
+                          </button>
+                        </div>
+                      </form>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="rounded-[20px] border-slate-100 shadow-sm border-t-4 border-t-blue-500">
+                    <CardContent className="p-8 flex flex-col items-center justify-center text-center space-y-4">
+                      <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
+                        <RefreshCw size={32} className="animate-spin" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-slate-800">
+                          {flowState === 'assigned' ? 'Worker Notified' : flowState === 'rework' ? 'Reworking Issue' : 'Work In Progress'}
+                        </h3>
+                        <p className="text-slate-500 mt-2">
+                          <strong>{complaintData?.workerId?.fullName || workers.find(w => w._id === assignment.worker)?.fullName || 'Field Worker'}</strong> is currently handling this issue. Awaiting completion and after-images.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setIsEditingAssignment(true)}
+                        className="mt-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                      >
+                        <Edit2 size={13} className="text-[#4CC9B0]" /> Edit Assignment
+                      </button>
+                    </CardContent>
+                  </Card>
+                )}
               </motion.div>
             )}
 
@@ -579,3 +714,4 @@ export function SupervisorComplaintDetail() {
     </motion.div>
   )
 }
+

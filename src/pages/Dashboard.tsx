@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useAuth } from "../context/AuthContext"
 import { Link } from "react-router-dom"
 
-const API_BASE = 'http://localhost:5000/api/admin';
+const API_BASE = 'http://10.152.129.95:5000/api/admin';
 
 const iconMap: Record<string, any> = {
   Clock, CheckCircle, UserCheck, Users, ShieldAlert, Award
@@ -458,4 +458,5 @@ export function Dashboard() {
     </motion.div>
   )
 }
+
 

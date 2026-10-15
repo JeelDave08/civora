@@ -36,8 +36,8 @@ export function Rewards() {
     try {
       setLoading(true)
       const [resCatalog, resClaims] = await Promise.all([
-        fetch("http://localhost:5000/api/citizen/rewards", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("http://localhost:5000/api/citizen/rewards/my-claims", { headers: { Authorization: `Bearer ${token}` } })
+        fetch("http://10.152.129.95:5000/api/citizen/rewards", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("http://10.152.129.95:5000/api/citizen/rewards/my-claims", { headers: { Authorization: `Bearer ${token}` } })
       ])
 
       if (resCatalog.ok) {
@@ -63,7 +63,7 @@ export function Rewards() {
     setErrorMessage("")
 
     try {
-      const res = await fetch("http://localhost:5000/api/citizen/rewards/claim", {
+      const res = await fetch("http://10.152.129.95:5000/api/citizen/rewards/claim", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -382,3 +382,4 @@ export function Rewards() {
     </div>
   )
 }
+
